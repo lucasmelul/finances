@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Tokens del DESIGN_BRIEF — paleta dark-first.
+       Valores en HSL (sin la función hsl()) para que Tailwind aplique alpha. */
+    --bg-base: 222 27% 6%;        /* #0B0E14 */
+    --bg-surface: 222 23% 11%;    /* #151923 */
+    --bg-elevated: 222 23% 15%;   /* #1E2330 */
+    --border-subtle: 222 22% 21%; /* #2A3142 */
+    --border-hover: 220 17% 28%;  /* #3A4254 */
+    --text-primary: 214 25% 97%;  /* #F5F7FA */
+    --text-secondary: 217 12% 65%;/* #9AA3B2 */
+    --text-muted: 218 12% 40%;    /* #5A6373 */
+    --accent: 239 84% 67%;        /* #6366F1 */
+    --positive: 160 84% 39%;      /* #10B981 */
+    --negative: 0 84% 60%;        /* #EF4444 */
+    --warning: 38 92% 50%;        /* #F59E0B */
+    --info: 217 91% 60%;          /* #3B82F6 */
+  }
+
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg-base text-text-primary antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Áreas tappables ≥ 44px (DESIGN_BRIEF §11) */
+  button, [role='button'], a {
+    @apply select-none;
+  }
+
+  /* Foco visible accesible */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-bg-base;
+  }
+}
+
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
+  .safe-top {
+    padding-top: max(env(safe-area-inset-top), 0.5rem);
+  }
+}

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Patrimonio · Portfolio Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #0B0E14; font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; color: #F5F7FA; }
+  * { box-sizing: border-box; }
+  button { font-family: inherit; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2A3142; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3A4254; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes flashGreen { 0% { background: rgba(16,185,129,0); } 30% { background: rgba(16,185,129,0.18); } 100% { background: rgba(16,185,129,0); } }
+  @keyframes flashRed   { 0% { background: rgba(239,68,68,0); }  30% { background: rgba(239,68,68,0.18); }  100% { background: rgba(239,68,68,0); } }
+  /* Force monospace fallback for tabular */
+  [style*="tabular-nums"] { font-feature-settings: "tnum"; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="screens-1.jsx"></script>
+<script type="text/babel" src="screens-2.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<script type="text/babel">
+const { useState, useMemo } = React;
+
+const TWEAK_DEFAULS = /*EDITMODE-BEGIN*/{
+  "theme": "dark",
+  "displayCurrency": "USD",
+  "fxRate": "ccl",
+  "hidden": false,
+  "density": "comfortable"
+}/*EDITMODE-END*/;
+
+function Root() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULS);
+  const T = DESIGN_TOKENS[tweaks.theme] || DESIGN_TOKENS.dark;
+  const hidden = !!tweaks.hidden;
+  const displayCcy = tweaks.displayCurrency;
+  const fxRate = tweaks.fxRate;
+
+  return (
+    <div data-screen-label="Design Canvas" style={{ width: '100vw', height: '100vh', background: T.bgBase }}>
+      <DesignCanvas
+        title="Patrimonio · Portfolio Tracker (PWA)"
+        subtitle="Design system + 6 pantallas core en mobile + vista desktop responsive · dark theme default"
+      >
+        <DCSection id="mobile" title="Mobile (PWA)">
+
+          <DCArtboard id="inicio" label="01 · Inicio · Hero + curva + FX + activos" width={420} height={910}>
+            <div data-screen-label="01 Inicio" style={{ width: 420, height: 910, background: T.bgBase }}>
+              <PortfolioApp T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} mode="mobile" initialScreen="inicio"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="carteras" label="02 · Carteras · 4 buckets temporales" width={420} height={910}>
+            <div data-screen-label="02 Carteras" style={{ width: 420, height: 910, background: T.bgBase }}>
+              <PortfolioApp T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} mode="mobile" initialScreen="carteras"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="asset" label="03 · Detalle de activo · CEDEAR + S/R" width={420} height={1100}>
+            <div data-screen-label="03 Activo" style={{ width: 420, height: 1100, background: T.bgBase }}>
+              <PortfolioAppWithAsset T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate}/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="chat" label="04 · Operar · Chat con voz + recibo parseado" width={420} height={910}>
+            <div data-screen-label="04 Chat" style={{ width: 420, height: 910, background: T.bgBase }}>
+              <PortfolioApp T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} mode="mobile" initialScreen="chat"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="oport" label="05 · Oportunidades · zonas de compra" width={420} height={1050}>
+            <div data-screen-label="05 Oportunidades" style={{ width: 420, height: 1050, background: T.bgBase }}>
+              <PortfolioApp T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} mode="mobile" initialScreen="oport"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="cuentas" label="06 · Cuentas · brokers, exchanges, wallets, A/B" width={420} height={910}>
+            <div data-screen-label="06 Cuentas" style={{ width: 420, height: 910, background: T.bgBase }}>
+              <PortfolioApp T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} mode="mobile" initialScreen="cuentas"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="desktop" title="Desktop (responsive)">
+          <DCArtboard id="desk-inicio" label="Desktop · Inicio" width={1280} height={820}>
+            <div data-screen-label="Desktop Inicio" style={{ width: 1280, height: 820, background: T.bgBase }}>
+              <PortfolioApp T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} mode="desktop" initialScreen="inicio"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="desk-oport" label="Desktop · Oportunidades" width={1280} height={820}>
+            <div data-screen-label="Desktop Oportunidades" style={{ width: 1280, height: 820, background: T.bgBase }}>
+              <PortfolioApp T={T} hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} mode="desktop" initialScreen="oport"/>
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="system" title="Sistema de diseño">
+          <DCArtboard id="palette" label="Paleta + tokens" width={560} height={520}>
+            <PaletteCard T={T}/>
+          </DCArtboard>
+          <DCArtboard id="components" label="Componentes core" width={560} height={520}>
+            <ComponentsCard T={T} hidden={hidden}/>
+          </DCArtboard>
+        </DCSection>
+
+      </DesignCanvas>
+
+      {/* Tweaks panel */}
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Apariencia">
+          <TweakRadio  label="Tema"     value={tweaks.theme}          options={[['dark','Oscuro'],['light','Claro']]} onChange={v => setTweak('theme', v)}/>
+          <TweakToggle label="Modo privacidad (oculta valores)" value={hidden} onChange={v => setTweak('hidden', v)}/>
+        </TweakSection>
+        <TweakSection title="Moneda de display">
+          <TweakRadio label="Moneda" value={displayCcy} options={[['USD','USD'],['ARS','ARS'],['EUR','EUR']]} onChange={v => setTweak('displayCurrency', v)}/>
+          <TweakSelect label="Cotización USD" value={fxRate} options={[['oficial','Oficial'],['mep','MEP'],['ccl','CCL'],['blue','Blue']]} onChange={v => setTweak('fxRate', v)}/>
+        </TweakSection>
+      </TweaksPanel>
+    </div>
+  );
+}
+
+// Wrapper que pre-selecciona un asset (AAPL CEDEAR) para mostrar la pantalla de detalle
+function PortfolioAppWithAsset({ T, hidden, displayCcy, fxRate }) {
+  const [s, setS] = useState('asset');
+  return s === 'asset' ? (
+    <MobileChromeWrapper T={T} hidden={hidden} displayCcy={displayCcy} screen="asset">
+      <ScreenAsset T={T} assetId="aapl" hidden={hidden} displayCcy={displayCcy} fxRate={fxRate} onBack={() => {}}/>
+    </MobileChromeWrapper>
+  ) : null;
+}
+
+function MobileChromeWrapper({ T, hidden, displayCcy, screen, children }) {
+  return <MobileChrome T={T} hidden={hidden} displayCcy={displayCcy} screen={screen} onNav={() => {}}>{children}</MobileChrome>;
+}
+
+// ── Sistema cards ──────────────────────────────────────────────
+function PaletteCard({ T }) {
+  const tokens = [
+    { label: 'bg-base',     v: T.bgBase },
+    { label: 'bg-surface',  v: T.bgSurface },
+    { label: 'bg-elevated', v: T.bgElevated },
+    { label: 'border',      v: T.borderSubtle },
+    { label: 'text-primary',v: T.textPrimary },
+    { label: 'text-secondary', v: T.textSecondary },
+    { label: 'accent',      v: T.accent },
+    { label: 'positive',    v: T.positive },
+    { label: 'negative',    v: T.negative },
+    { label: 'warning · B', v: T.warning },
+    { label: 'info · A',    v: T.info },
+  ];
+  return (
+    <div style={{ width: 560, height: 520, background: T.bgBase, padding: 28, color: T.textPrimary, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: T.textSecondary, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>Sistema · Tokens</div>
+      <h2 style={{ fontSize: 20, fontWeight: 600, margin: '0 0 20px', letterSpacing: -0.3 }}>Paleta + tipografía</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 24 }}>
+        {tokens.map(t => (
+          <div key={t.label} style={{ background: T.bgSurface, border: `1px solid ${T.borderSubtle}`, borderRadius: 10, padding: 10 }}>
+            <div style={{ width: '100%', height: 36, background: t.v, borderRadius: 6, marginBottom: 6, border: `1px solid ${T.borderSubtle}` }}/>
+            <div style={{ fontSize: 10, color: T.textSecondary, fontFamily: 'ui-monospace, monospace' }}>{t.label}</div>
+            <div style={{ fontSize: 10, color: T.textMuted, fontFamily: 'ui-monospace, monospace', marginTop: 1 }}>{t.v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 16, borderTop: `1px solid ${T.borderSubtle}` }}>
+        <div style={{ fontSize: 38, fontWeight: 600, letterSpacing: -1, fontVariantNumeric: 'tabular-nums' }}>US$ 142,890.50</div>
+        <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: -0.3 }}>Inter · Display 38</div>
+        <div style={{ fontSize: 14, fontWeight: 500, color: T.textSecondary }}>Body · 14 / 500 — números siempre tabulares</div>
+        <div style={{ fontSize: 11, color: T.textMuted, fontFamily: 'ui-monospace, monospace', marginTop: 4 }}>SF Mono · timestamps + tickers</div>
+      </div>
+    </div>
+  );
+}
+
+function ComponentsCard({ T, hidden }) {
+  const aapl = ASSETS.find(a => a.id === 'aapl');
+  const btc = ASSETS.find(a => a.id === 'btc');
+  return (
+    <div style={{ width: 560, height: 520, background: T.bgBase, padding: 28, color: T.textPrimary, fontFamily: 'Inter, sans-serif', overflow: 'auto' }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: T.textSecondary, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>Sistema · Componentes</div>
+      <h2 style={{ fontSize: 20, fontWeight: 600, margin: '0 0 16px', letterSpacing: -0.3 }}>Bloques constructivos</h2>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+        <Btn kind="primary" size="sm" T={T} icon="plus">Operar</Btn>
+        <Btn kind="soft" size="sm" T={T} icon="check">Confirmar</Btn>
+        <Btn kind="ghost" size="sm" T={T}>Cancelar</Btn>
+        <Btn kind="surface" size="sm" T={T} icon="filter">Filtrar</Btn>
+        <Btn kind="danger" size="sm" T={T} icon="x">Eliminar</Btn>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+        <TagBadge tag="A" T={T} label="A · DECLARADO"/>
+        <TagBadge tag="B" T={T} label="B · PRIVADO"/>
+        <BucketChip bucketId="corto" T={T}/>
+        <BucketChip bucketId="medio" T={T}/>
+        <BucketChip bucketId="largo" T={T}/>
+        <BucketChip bucketId="trade" T={T}/>
+      </div>
+
+      <div style={{ background: T.bgSurface, border: `1px solid ${T.borderSubtle}`, borderRadius: 16, overflow: 'hidden', marginBottom: 12 }}>
+        <AssetRow asset={aapl} T={T} hidden={hidden} displayCcy="USD" fxRate="ccl" onNav={() => {}} divider/>
+        <AssetRow asset={btc} T={T} hidden={hidden} displayCcy="USD" fxRate="ccl" onNav={() => {}}/>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <KPI label="PnL 30d" value="+US$ 8,420" delta={6.21} T={T} sparkData={spark(11,18,0.4,1)} sparkColor={T.positive}/>
+        <KPI label="Yield acum." value="US$ 312" delta={1.4} T={T} sub="staking"/>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
+</script>
+</body>
+</html>
