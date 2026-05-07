@@ -8,7 +8,7 @@
  *  3. Versión + info técnica.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAccounts, useTransactions } from '@/lib/db/queries';
@@ -17,6 +17,12 @@ import {
   resetToClean,
   resetToDemo,
 } from '@/lib/db/bootstrap';
+import {
+  exportDatabase,
+  downloadAsJson,
+  importDatabase,
+  readJsonFile,
+} from '@/lib/db/portability';
 import { hasAnthropic } from '@/lib/api/anthropic';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
@@ -27,6 +33,9 @@ export function Settings() {
   const txs = useTransactions();
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState(() => getBootstrapMode());
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importOk, setImportOk] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Indicadores: ¿hay datos de demo todavía cargados?
   const hasSeedTxs = !!txs?.some((t) => t.id.startsWith('seed-tx-'));
@@ -71,6 +80,35 @@ export function Settings() {
       window.location.href = '/';
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleExport() {
+    setBusy(true);
+    try {
+      const data = await exportDatabase();
+      downloadAsJson(data);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError(null);
+    setImportOk(null);
+    setBusy(true);
+    try {
+      const raw = await readJsonFile(file);
+      const { imported } = await importDatabase(raw);
+      setImportOk(`Importados ${imported} registros correctamente.`);
+      window.location.reload();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Error al importar.');
+    } finally {
+      setBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
@@ -134,6 +172,58 @@ export function Settings() {
           >
             Cargar datos de demostración
           </Button>
+        </div>
+      </section>
+
+      {/* Backup / Restore */}
+      <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+          Backup y restauración
+        </div>
+        <p className="mb-3 text-[12px] text-text-muted">
+          Exportá tus datos a JSON para hacer un backup o moverlos a otro dispositivo.
+          Al importar, los registros existentes se actualizan (merge).
+        </p>
+
+        {importError && (
+          <div className="mb-2 rounded-md bg-negative/[0.12] px-3 py-2 text-[12px] text-negative">
+            {importError}
+          </div>
+        )}
+        {importOk && (
+          <div className="mb-2 rounded-md bg-positive/[0.12] px-3 py-2 text-[12px] text-positive">
+            {importOk}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="surface"
+            size="md"
+            full
+            disabled={busy}
+            leftIcon="arrow-down"
+            onClick={handleExport}
+          >
+            Exportar JSON
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            full
+            disabled={busy}
+            leftIcon="arrow-up"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Importar desde JSON
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleImport}
+          />
         </div>
       </section>
 

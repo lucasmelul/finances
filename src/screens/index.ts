@@ -11,3 +11,4 @@ export { Simulador } from './Simulador';
 export { Staking } from './Staking';
 export { Importar } from './Importar';
 export { Settings } from './Settings';
+export { Insights } from './Insights';

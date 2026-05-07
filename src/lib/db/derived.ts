@@ -32,7 +32,7 @@ import {
 import { computeStakingSummary, type StakingSummary } from '@/lib/staking';
 import { computeSRFromPrices, type SRLevels } from '@/lib/sr';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { fetchCryptoHistory } from '@/lib/api/coingecko';
+import { fetchAndCacheHistory } from './historyCache';
 import type { Asset } from '@/lib/types';
 import { useUIStore } from '@/lib/store';
 // SEED_SR (niveles inventados del diseño) ya no se usa — reemplazado por
@@ -346,14 +346,15 @@ export function useAutoSR(assetId: string | undefined): SRLevels | null | undefi
   const { data: history } = useQuery({
     queryKey: ['sr-history', asset?.id],
     enabled: !!(asset && asset.type === 'crypto' && asset.coingeckoId),
-    // Mismo rationale que `useAutoSRs`: cache agresivo para no superar
-    // rate limit de CoinGecko free tier.
+    // Cache de TanStack en memoria + cache-aside a IndexedDB en `queryFn`.
+    // El doble layer: TanStack evita refetches mismo-tab; Dexie sobrevive
+    // reload y cierre de tab.
     staleTime: 6 * 60 * 60_000,
     gcTime: 24 * 60 * 60_000,
     queryFn: async () => {
       if (!asset?.coingeckoId) return null;
-      // 90 días de histórico → ~90 puntos diarios = sample suficiente.
-      return fetchCryptoHistory(asset.coingeckoId, '3M');
+      // 90 días de histórico → ~90 puntos diarios = sample suficiente para SR.
+      return fetchAndCacheHistory(asset.id, asset.coingeckoId, '3M');
     },
     retry: false,
     refetchOnWindowFocus: false,
@@ -398,7 +399,7 @@ export function useAutoSRs(
       queryKey: ['sr-history', a.id],
       staleTime: 6 * 60 * 60_000,
       gcTime: 24 * 60 * 60_000,
-      queryFn: () => fetchCryptoHistory(a.coingeckoId!, '3M'),
+      queryFn: () => fetchAndCacheHistory(a.id, a.coingeckoId!, '3M'),
       retry: false,
       refetchOnWindowFocus: false,
       refetchOnMount: false,

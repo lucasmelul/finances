@@ -205,3 +205,24 @@ export interface FxRateCache {
   sell: number;
   fetchedAt: string;
 }
+
+/**
+ * Cache de histórico de precios (para charts y cálculo de S/R).
+ *
+ * PK compuesta `[assetId+period]` — un activo puede tener histórico cacheado
+ * para múltiples períodos (1D / 1W / 1M / 3M / 1Y / All) sin pisarse.
+ *
+ * Persistir en IndexedDB (no solo TanStack memoria) sobrevive a hard reload
+ * y evita pegarle a CoinGecko cada vez que el user abre la app — clave para
+ * no chocar con el rate limit del free tier.
+ */
+export interface PriceHistoryCache {
+  assetId: string;
+  /** '1D' | '1W' | '1M' | '3M' | '1Y' | 'All' — definido en chart period type. */
+  period: string;
+  /** Serie temporal `[timestamp_ms, price_usd]`. */
+  points: Array<{ timestamp: number; price: number }>;
+  fetchedAt: string;
+  /** Fuente — útil para invalidar cache cuando cambiamos de proveedor. */
+  source: string;
+}

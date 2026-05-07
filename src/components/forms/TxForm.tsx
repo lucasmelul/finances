@@ -16,7 +16,7 @@
  * Compartido entre Chat (Form tab) y EditTxDialog para no duplicar lógica.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -112,6 +112,7 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
   const accounts = useAccounts();
   const assets = useAssets();
   const prices = usePriceMap();
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -158,6 +159,7 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
   }, [watchedAssetId, assets, prices, mode.kind, setValue, watchedPrice]);
 
   async function onSubmit(values: FormValues) {
+    setSubmitError(null);
     try {
       if (mode.kind === 'create') {
         // Reconstruir ISO date — el input solo da YYYY-MM-DD, asumimos hora 12:00 local.
@@ -192,7 +194,7 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
       }
     } catch (err) {
       console.error('TxForm submit failed', err);
-      alert(err instanceof Error ? err.message : 'Error al guardar');
+      setSubmitError(err instanceof Error ? err.message : 'Error al guardar');
     }
   }
 
@@ -265,6 +267,12 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
                 ? `$ ${fmt(total, 0)}`
                 : `${fmt(total, 2)} ${watchedCurrency}`}
           </span>
+        </div>
+      )}
+
+      {submitError && (
+        <div className="rounded-md bg-negative/[0.12] px-3 py-2 text-[12px] text-negative">
+          {submitError}
         </div>
       )}
 

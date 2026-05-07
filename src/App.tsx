@@ -21,6 +21,7 @@ import {
   Staking,
   Importar,
   Settings,
+  Insights,
 } from '@/screens';
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/staking" element={<Staking />} />
           <Route path="/importar" element={<Importar />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/insights" element={<Insights />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

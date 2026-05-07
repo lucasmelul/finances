@@ -27,7 +27,8 @@ import { TagBadge } from '@/components/ui/TagBadge';
 import { BucketChip } from '@/components/ui/BucketChip';
 import { useAccounts, useAssets } from '@/lib/db/queries';
 import { usePortfolioMetrics, usePriceMap, useRiskMetrics, useLiquidityMetrics } from '@/lib/db/derived';
-import { createTransaction, deleteTransaction } from '@/lib/db/mutations';
+import { createAsset, createTransaction, deleteTransaction } from '@/lib/db/mutations';
+import { CEDEARS } from '@/data/cedears';
 import { hasAI, interpretMessage, type ChatIntent } from '@/lib/api/chat-ai';
 import type { ExtractedTransactionData } from '@/lib/api/anthropic';
 import { TxForm } from '@/components/forms/TxForm';
@@ -77,11 +78,11 @@ interface ParsedTx {
  *
  * Reemplazar por Anthropic Messages API en Phase 2 (ver SPEC §7).
  */
-function stubParse(
+async function stubParse(
   text: string,
   assets: Asset[],
   accounts: Account[],
-): ParsedTx | null {
+): Promise<ParsedTx | null> {
   const lower = text.toLowerCase();
   const isBuy = /\b(comp|compr|compré|compre)/.test(lower);
   const isSell = /\b(vend|vendí|vende|vendi)/.test(lower);
@@ -92,7 +93,24 @@ function stubParse(
   if (!m) return null;
   const qty = parseFloat(m[1].replace(',', '.'));
   const tickerRaw = m[2].toUpperCase();
-  const asset = assets.find((a) => a.ticker === tickerRaw);
+  let asset: Asset | undefined = assets.find((a) => a.ticker === tickerRaw);
+  if (!asset) {
+    const cedear = CEDEARS.find((c) => c.ticker === tickerRaw);
+    if (cedear) {
+      try {
+        asset = await createAsset({
+          ticker: cedear.ticker,
+          name: cedear.name,
+          type: 'cedear',
+          currency: 'ARS',
+          cedearRatio: cedear.ratio,
+          underlyingTicker: cedear.underlyingTicker,
+        });
+      } catch {
+        return null;
+      }
+    }
+  }
   if (!asset) return null;
 
   // Precio (a XYZ, "a 95400")
@@ -216,12 +234,12 @@ export function Chat() {
           accounts,
           todayISO: new Date().toISOString().slice(0, 10),
         });
-        const replyMsg = handleIntent(intent);
+        const replyMsg = await handleIntent(intent);
         setMessages((m) => [...m, replyMsg]);
       } catch (err) {
         // Si Anthropic falla (rate limit, key inválida, red), caemos al stub.
         console.warn('[chat] Anthropic falló, usando stub:', err);
-        addStubReply(trimmed);
+        await addStubReply(trimmed);
       } finally {
         setIsThinking(false);
       }
@@ -229,7 +247,7 @@ export function Chat() {
     }
 
     // Camino 2: stub local.
-    addStubReply(trimmed);
+    await addStubReply(trimmed);
   }
 
   /**
@@ -237,12 +255,23 @@ export function Chat() {
    * resuelve ticker→assetId y account_name→accountId; si falta info adjunta una
    * pregunta de slot-filling. Para queries genera la respuesta inline.
    */
-  function handleIntent(intent: ChatIntent): ChatMessage {
+  async function handleIntent(intent: ChatIntent): Promise<ChatMessage> {
     const ts = new Date().toISOString();
     const id = `m-${Date.now()}`;
 
     if (intent.type === 'create_transaction') {
-      const parsed = resolveTransactionData(intent.data, assets ?? [], accounts ?? []);
+      const parsed = await resolveTransactionData(intent.data, assets ?? [], accounts ?? []);
+      // Si no pudimos resolver el ticker (no está en library ni en seeds), avisamos.
+      if (!parsed && intent.data.ticker) {
+        return {
+          id,
+          role: 'assistant',
+          text:
+            intent.assistantMessage +
+            `\n\nNo encontré "${intent.data.ticker.toUpperCase()}" en tu biblioteca. Buscalo desde la lupita arriba para agregarlo y volvé a intentar.`,
+          timestamp: ts,
+        };
+      }
       return {
         id,
         role: 'assistant',
@@ -290,9 +319,9 @@ export function Chat() {
   }
 
   /** Fallback al regex local si no hay AI o falla. */
-  function addStubReply(trimmed: string) {
+  async function addStubReply(trimmed: string) {
     if (!assets || !accounts) return;
-    const parsed = stubParse(trimmed, assets, accounts);
+    const parsed = await stubParse(trimmed, assets, accounts);
     setMessages((m) => [
       ...m,
       {
@@ -527,17 +556,35 @@ export function Chat() {
  * sin precio), devuelve null y el chat muestra solo el `assistantMessage`
  * (que el LLM ya armó con la pregunta de slot-filling).
  */
-function resolveTransactionData(
+async function resolveTransactionData(
   data: ExtractedTransactionData,
   assets: Asset[],
   accounts: Account[],
-): ParsedTx | null {
+): Promise<ParsedTx | null> {
   if (!data.kind || !data.ticker) return null;
 
-  // Match de asset por ticker (UPPER, exact). Si no encuentra, no podemos
-  // continuar — el chat le va a decir al usuario que el ticker no existe.
+  // Match de asset por ticker (UPPER, exact). Si no está en la biblioteca,
+  // intentamos auto-crearlo desde el seed de CEDEARs — así el flujo
+  // "compré 1 MELI" funciona aunque MELI no esté cargado todavía.
   const ticker = data.ticker.toUpperCase();
-  const asset = assets.find((a) => a.ticker.toUpperCase() === ticker);
+  let asset = assets.find((a) => a.ticker.toUpperCase() === ticker);
+  if (!asset) {
+    const cedear = CEDEARS.find((c) => c.ticker.toUpperCase() === ticker);
+    if (cedear) {
+      try {
+        asset = await createAsset({
+          ticker: cedear.ticker,
+          name: cedear.name,
+          type: 'cedear',
+          currency: 'ARS',
+          cedearRatio: cedear.ratio,
+          underlyingTicker: cedear.underlyingTicker,
+        });
+      } catch {
+        return null;
+      }
+    }
+  }
   if (!asset) return null;
 
   // qty: si vino directo úsala. Si vino amountUSD y precio, derivá. Si solo

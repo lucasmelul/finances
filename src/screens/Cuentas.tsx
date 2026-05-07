@@ -18,7 +18,8 @@ import { Icon, type IconName } from '@/components/ui/Icon';
 import { TagBadge } from '@/components/ui/TagBadge';
 import { Button } from '@/components/ui/Button';
 import { NuevaCuentaDialog } from '@/components/dialogs/NuevaCuentaDialog';
-import type { AccountKind, AccountTag } from '@/lib/types';
+import { EditCuentaDialog } from '@/components/dialogs/EditCuentaDialog';
+import type { Account, AccountKind, AccountTag } from '@/lib/types';
 
 type Filter = 'all' | 'A' | 'B';
 
@@ -44,11 +45,15 @@ export function Cuentas() {
   const fx = useFx();
   const [filter, setFilter] = useState<Filter>('all');
   const [newAccountOpen, setNewAccountOpen] = useState(false);
+  const [editAccount, setEditAccount] = useState<Account | null>(null);
+
+  // Only show non-archived accounts in the list
+  const activeAccounts = useMemo(() => accounts?.filter((a) => !a.archivedAt), [accounts]);
 
   // Calcular valor por cuenta (suma de todos los holdings de esa cuenta)
   const enriched = useMemo(() => {
-    if (!accounts || !holdings || !prices) return undefined;
-    return accounts.map((acc) => {
+    if (!activeAccounts || !holdings || !prices) return undefined;
+    return activeAccounts.map((acc) => {
       const accHoldings = holdings.filter((h) => h.accountId === acc.id);
       const valueUSD = accHoldings.reduce((sum, h) => {
         const p = prices.get(h.assetId);
@@ -57,7 +62,7 @@ export function Cuentas() {
       }, 0);
       return { ...acc, valueUSD, positions: accHoldings.length };
     });
-  }, [accounts, holdings, prices, fx]);
+  }, [activeAccounts, holdings, prices, fx]);
 
   const totals = useMemo(() => {
     if (!enriched) return { A: 0, B: 0, all: 0 };
@@ -176,23 +181,38 @@ export function Cuentas() {
                 {acc.positions === 1 ? 'activo' : 'activos'}
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-sm font-semibold text-text-primary tabular-nums">
-                {hidden
-                  ? '••••'
-                  : fmtMoney(convertUSD(acc.valueUSD, displayCurrency, fx), displayCurrency)}
-              </div>
-              {acc.currency && (
-                <div className="mt-0.5 font-mono text-[10px] uppercase text-text-muted">
-                  {acc.currency}
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <div className="text-sm font-semibold text-text-primary tabular-nums">
+                  {hidden
+                    ? '••••'
+                    : fmtMoney(convertUSD(acc.valueUSD, displayCurrency, fx), displayCurrency)}
                 </div>
-              )}
+                {acc.currency && (
+                  <div className="mt-0.5 font-mono text-[10px] uppercase text-text-muted">
+                    {acc.currency}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                aria-label="Editar cuenta"
+                onClick={() => setEditAccount(acc)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg-elevated hover:text-text-primary"
+              >
+                <Icon name="edit" size={14} />
+              </button>
             </div>
           </div>
         ))}
       </section>
 
       <NuevaCuentaDialog open={newAccountOpen} onOpenChange={setNewAccountOpen} />
+      <EditCuentaDialog
+        account={editAccount}
+        open={editAccount !== null}
+        onOpenChange={(o) => { if (!o) setEditAccount(null); }}
+      />
     </div>
   );
 }

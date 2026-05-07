@@ -2,22 +2,24 @@
  * Hook para histórico de precios — alimenta los charts de Asset detail.
  *
  * Estrategia:
- *  - Cripto → CoinGecko `/coins/{id}/market_chart`
+ *  - Cripto → CoinGecko `/coins/{id}/market_chart` (con cache IndexedDB)
  *  - CEDEAR / ETF / stock → TODO Phase 2 con stooq o Yahoo proxy
  *  - Bono / fondo → no soportado por API pública confiable, devolvemos null
  *
- * El cache de TanStack vive 5 minutos (los charts no cambian segundo a
- * segundo, no vale gastar req/min en re-fetchear lo mismo). Si el usuario
- * vuelve al mismo activo+período en <5min, hit del cache.
+ * Cache de dos capas:
+ *  - TanStack en memoria (staleTime 6h, gcTime 24h)
+ *  - IndexedDB en `historyCache.ts` (TTL 6h, sobrevive reload)
+ *
+ * Si CoinGecko falla por rate limit, devolvemos cache stale (mejor un
+ * histórico de hace 12h que no mostrar nada).
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { fetchCryptoHistory, type ChartPeriod, type PriceHistoryPoint } from './coingecko';
+import type { ChartPeriod, PriceHistoryPoint } from './coingecko';
+import { fetchAndCacheHistory } from '@/lib/db/historyCache';
 import type { Asset } from '@/lib/types';
 
 export type { ChartPeriod, PriceHistoryPoint };
-
-const STALE_MS = 5 * 60_000;
 
 /**
  * Carga el histórico del activo para el período. Devuelve `data: undefined`
@@ -28,18 +30,19 @@ export function usePriceHistory(asset: Asset | undefined, period: ChartPeriod) {
   return useQuery<PriceHistoryPoint[] | null>({
     queryKey: ['price-history', asset?.id, period],
     enabled: !!asset,
-    staleTime: STALE_MS,
+    staleTime: 6 * 60 * 60_000,
+    gcTime: 24 * 60 * 60_000,
     queryFn: async () => {
       if (!asset) return null;
-      // Crypto via CoinGecko
       if (asset.type === 'crypto' && asset.coingeckoId) {
-        return fetchCryptoHistory(asset.coingeckoId, period);
+        return fetchAndCacheHistory(asset.id, asset.coingeckoId, period);
       }
       // TODO Phase 2: CEDEAR/ETF/stock vía stooq o proxy de Yahoo
       // TODO Phase 3: bonos AR vía data912 / IAMC
       // TODO Phase 3: FCI vía CAFCI
       return null;
     },
-    retry: 1,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 }

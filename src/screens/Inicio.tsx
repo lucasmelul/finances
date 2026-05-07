@@ -71,6 +71,9 @@ export function Inicio() {
   // que el usuario sepa que NO son sus datos reales.
   const hasDemoData = transactions?.some((t) => t.id.startsWith('seed-tx-')) ?? false;
 
+  // Sin cuentas reales y sin datos de demo → onboarding
+  const showOnboarding = accounts !== undefined && accounts.length === 0 && !hasDemoData;
+
   return (
     <div className="flex flex-col gap-4 pb-6">
       {/* Banner de demo — visible solo si hay tx del seed. Lleva a Settings
@@ -90,6 +93,39 @@ export function Inicio() {
           </div>
           <Icon name="arrow-right" size={14} color="hsl(var(--warning))" />
         </button>
+      )}
+
+      {/* Banner de onboarding — visible cuando el usuario no tiene cuentas. */}
+      {showOnboarding && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-accent/30 bg-accent/[0.06] p-4">
+          <div className="flex items-center gap-2">
+            <Icon name="spark" size={20} color="hsl(var(--accent))" />
+            <span className="text-sm font-semibold text-text-primary">
+              Bienvenido a tu portfolio
+            </span>
+          </div>
+          <p className="text-[12px] leading-relaxed text-text-secondary">
+            Todavía no tenés cuentas cargadas. Creá tu primera cuenta (broker, exchange o wallet)
+            y empezá a registrar tus inversiones.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/cuentas')}
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              <Icon name="plus" size={13} />
+              Crear cuenta
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/settings')}
+              className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-[12px] font-semibold text-text-secondary transition-colors hover:bg-bg-elevated"
+            >
+              Cargar datos demo
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ─── 1. HERO: capital invertido / valor / ganancia ─── */}
@@ -328,7 +364,6 @@ function InsightsBlock({
   insights: import('@/lib/insights').Insight[];
   onSeeAll?: () => void;
 }) {
-  void onSeeAll; // futuro: pantalla "todos los insights"
   const top3 = insights.slice(0, 3);
   const hasMore = insights.length > 3;
 
@@ -339,9 +374,13 @@ function InsightsBlock({
           Qué hacer hoy
         </h2>
         {hasMore && (
-          <span className="text-[11px] text-text-muted">
-            {insights.length} insights
-          </span>
+          <button
+            type="button"
+            onClick={onSeeAll}
+            className="text-[11px] font-medium text-accent hover:underline"
+          >
+            Ver todos ({insights.length})
+          </button>
         )}
       </div>
       <div className="flex flex-col gap-2">

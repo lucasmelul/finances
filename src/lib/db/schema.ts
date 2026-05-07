@@ -5,6 +5,7 @@ import type {
   FxRateCache,
   Portfolio,
   PriceCache,
+  PriceHistoryCache,
   StakingRule,
   Transaction,
   WatchlistEntry,
@@ -29,6 +30,7 @@ export class PortfolioDB extends Dexie {
   watchlist!: Table<WatchlistEntry, string>;
   priceCache!: Table<PriceCache, string>;
   fxRateCache!: Table<FxRateCache, string>;
+  priceHistoryCache!: Table<PriceHistoryCache, [string, string]>;
 
   constructor() {
     super('portfolio_tracker');
@@ -44,6 +46,12 @@ export class PortfolioDB extends Dexie {
       watchlist: 'id, &assetId',
       priceCache: 'assetId, fetchedAt',
       fxRateCache: 'kind, fetchedAt',
+    });
+
+    // v2: priceHistoryCache para que el histórico de SR/charts sobreviva a
+    // hard reload y no toquemos CoinGecko cada vez (rate limit del free tier).
+    this.version(2).stores({
+      priceHistoryCache: '[assetId+period], assetId, fetchedAt',
     });
   }
 }

@@ -21,6 +21,7 @@
 
 import type { Account, Asset } from '@/lib/types';
 import type { ChatIntent, ExtractedTransactionData } from './anthropic';
+import { CEDEARS } from '@/data/cedears';
 
 // ─── Setup ─────────────────────────────────────────────────────────────────
 
@@ -204,10 +205,19 @@ export async function interpretMessage(
   const key = getApiKey();
   if (!key) throw new Error('VITE_GEMINI_API_KEY no configurada.');
 
-  // Contexto compacto: tickers + cuentas conocidos para que el modelo no aluce.
+  // Contexto compacto: tickers cargados + tickers del catálogo CEDEAR seed +
+  // cuentas. Pasamos el catálogo CEDEAR para que Gemini reconozca tickers
+  // como MELI/AAPL/KO aunque el usuario no los haya cargado todavía
+  // (el chat downstream auto-crea el Asset desde el seed).
   const tickers = ctx.assets.map((a) => a.ticker).join(', ');
+  const cedearTickers = CEDEARS.map((c) => c.ticker).join(', ');
   const accountNames = ctx.accounts.map((a) => a.name).join(', ');
-  const userContext = `Hoy es ${ctx.todayISO}. Tickers cargados: ${tickers}. Cuentas: ${accountNames}.\n\nMensaje del usuario: ${text}`;
+  const userContext =
+    `Hoy es ${ctx.todayISO}.\n` +
+    `Tickers ya cargados por el usuario: ${tickers || '(ninguno)'}.\n` +
+    `CEDEARs disponibles (catálogo BYMA): ${cedearTickers}.\n` +
+    `Cuentas: ${accountNames || '(ninguna)'}.\n\n` +
+    `Mensaje del usuario: ${text}`;
 
   const url = `${ENDPOINT}?key=${encodeURIComponent(key)}`;
   const body = {

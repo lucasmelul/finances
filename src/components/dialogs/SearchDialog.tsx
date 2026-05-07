@@ -7,8 +7,7 @@
  *  - Lista de resultados scrollable abajo.
  *  - Al clickear un resultado:
  *    - Si es local → navega a `/asset/:id`
- *    - Si es externo → ofrece "Agregar a la biblioteca" (Phase 2 — por ahora
- *      navegamos a la search externa con un toast de "no implementado").
+ *    - Si es externo → crea el Asset en Dexie y navega a `/asset/:id`
  *  - Esc / X → cierra (lo maneja Radix Dialog).
  */
 
@@ -16,11 +15,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAssets } from '@/lib/db/queries';
 import { useAssetSearch } from '@/lib/hooks/useAssetSearch';
+import { createAsset } from '@/lib/db/mutations';
 import { Dialog, DialogContent } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Icon } from '@/components/ui/Icon';
 import { cn } from '@/lib/utils';
 import type { AssetSearchResult } from '@/lib/api/search';
+import type { Currency } from '@/lib/types';
 
 interface SearchDialogProps {
   open: boolean;
@@ -31,20 +32,51 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const navigate = useNavigate();
   const localAssets = useAssets();
   const [query, setQuery] = useState('');
+  const [adding, setAdding] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
   const { results, loading, error } = useAssetSearch(query, { localAssets });
 
-  function handleSelect(result: AssetSearchResult) {
+  /**
+   * Inferir la moneda nativa del asset según su tipo:
+   *  - crypto / etf / stock / bono USA → USD
+   *  - cedear → ARS (cotiza en BYMA)
+   *  - fondo (FCI argentino) → ARS
+   *  - cash → fallback USD
+   */
+  function inferCurrency(type: AssetSearchResult['type']): Currency {
+    if (type === 'cedear' || type === 'fondo') return 'ARS';
+    return 'USD';
+  }
+
+  async function handleSelect(result: AssetSearchResult) {
+    setAddError(null);
     if (result.alreadyInLibrary) {
       navigate(`/asset/${result.id}`);
       onOpenChange(false);
       setQuery('');
-    } else {
-      // Phase 2: confirmar alta del asset y persistir.
-      // Por ahora avisamos.
-      alert(
-        `"${result.ticker} — ${result.name}" no está en tu biblioteca. ` +
-          `(Phase 2: lo agregamos automáticamente al confirmar.)`,
-      );
+      return;
+    }
+
+    setAdding(result.id);
+    try {
+      const created = await createAsset({
+        ticker: result.ticker,
+        name: result.name,
+        type: result.type,
+        currency: inferCurrency(result.type),
+        logo: result.logo,
+        logoBg: result.logoBg,
+        coingeckoId: result.coingeckoId,
+        cedearRatio: result.cedearRatio,
+        underlyingTicker: result.underlyingTicker,
+      });
+      navigate(`/asset/${created.id}`);
+      onOpenChange(false);
+      setQuery('');
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'No se pudo agregar el activo.');
+    } finally {
+      setAdding(null);
     }
   }
 
@@ -77,6 +109,11 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                 {error}
               </div>
             )}
+            {addError && (
+              <div className="rounded-md bg-negative/[0.12] px-3 py-2 text-[12px] text-negative">
+                {addError}
+              </div>
+            )}
             {!error && query.trim().length === 0 && (
               <EmptyHint />
             )}
@@ -92,9 +129,11 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                     <button
                       type="button"
                       onClick={() => handleSelect(r)}
+                      disabled={adding !== null}
                       className={cn(
                         'flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition-colors',
                         'hover:border-border-subtle hover:bg-bg-elevated/40',
+                        adding !== null && 'opacity-60 cursor-not-allowed',
                       )}
                     >
                       <ResultLogo result={r} />
@@ -116,7 +155,11 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                           {r.name}
                         </div>
                       </div>
-                      <SourceTag source={r.source} />
+                      {adding === r.id ? (
+                        <span className="text-[11px] text-text-muted animate-pulse">Agregando…</span>
+                      ) : (
+                        <SourceTag source={r.source} />
+                      )}
                     </button>
                   </li>
                 ))}

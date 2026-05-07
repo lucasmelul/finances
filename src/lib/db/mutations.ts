@@ -17,6 +17,8 @@ import type {
   Account,
   AccountKind,
   AccountTag,
+  Asset,
+  AssetType,
   Currency,
   PortfolioBucket,
   StakingRule,
@@ -158,6 +160,42 @@ export async function createAccount(input: CreateAccountInput): Promise<Account>
   return account;
 }
 
+// ─── Update / archive account ──────────────────────────────────────────────
+
+export interface UpdateAccountInput {
+  name?: string;
+  kind?: AccountKind;
+  currency?: Currency;
+  notes?: string;
+}
+
+export async function updateAccount(
+  accountId: string,
+  patch: UpdateAccountInput,
+): Promise<void> {
+  const trimmedName = patch.name?.trim();
+  if (trimmedName !== undefined && !trimmedName) {
+    throw new Error('El nombre de la cuenta no puede estar vacío.');
+  }
+  if (trimmedName) {
+    const existing = await db.accounts.toArray();
+    const conflict = existing.find(
+      (a) => a.id !== accountId && a.name.trim().toLowerCase() === trimmedName.toLowerCase(),
+    );
+    if (conflict) throw new Error(`Ya existe una cuenta llamada "${conflict.name}".`);
+    patch = { ...patch, name: trimmedName };
+  }
+  await db.accounts.update(accountId, patch as Partial<Account>);
+}
+
+export async function archiveAccount(accountId: string): Promise<void> {
+  await db.accounts.update(accountId, { archivedAt: new Date().toISOString() });
+}
+
+export async function unarchiveAccount(accountId: string): Promise<void> {
+  await db.accounts.update(accountId, { archivedAt: undefined });
+}
+
 // ─── Update tx ─────────────────────────────────────────────────────────────
 
 /**
@@ -194,6 +232,68 @@ export async function updateTransaction(
   }
   if (Object.keys(finalPatch).length === 0) return;
   await db.transactions.update(txId, finalPatch);
+}
+
+// ─── Assets ────────────────────────────────────────────────────────────────
+
+export interface CreateAssetInput {
+  ticker: string;
+  name: string;
+  type: AssetType;
+  currency: Currency;
+  /** Logo emoji/letra (opcional). */
+  logo?: string;
+  /** Color de fondo del logo. */
+  logoBg?: string;
+  /** Para criptos. */
+  coingeckoId?: string;
+  /** Para CEDEARs. */
+  cedearRatio?: number;
+  underlyingTicker?: string;
+  isin?: string;
+}
+
+/**
+ * Crea un Asset (activo) en Dexie. Usado cuando el usuario:
+ *  - Encuentra un asset en el SearchDialog y lo "agrega a su biblioteca"
+ *  - Define un asset custom no soportado por las APIs
+ *
+ * El índice `&[type+ticker]` asegura unicidad — si ya existe el mismo
+ * (type, ticker), tira error con mensaje legible.
+ */
+export async function createAsset(input: CreateAssetInput): Promise<Asset> {
+  const tickerTrimmed = input.ticker.trim().toUpperCase();
+  if (!tickerTrimmed) throw new Error('Ticker requerido.');
+
+  // Pre-check para mensaje más claro que el constraint violation de Dexie.
+  const existing = await db.assets
+    .where('[type+ticker]')
+    .equals([input.type, tickerTrimmed])
+    .first();
+  if (existing) {
+    throw new Error(
+      `Ya tenés ${tickerTrimmed} (${input.type}) en tu biblioteca.`,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const asset: Asset = {
+    id: newId(),
+    ticker: tickerTrimmed,
+    name: input.name.trim() || tickerTrimmed,
+    type: input.type,
+    currency: input.currency,
+    logo: input.logo,
+    logoBg: input.logoBg,
+    coingeckoId: input.coingeckoId,
+    cedearRatio: input.cedearRatio,
+    underlyingTicker: input.underlyingTicker,
+    isin: input.isin,
+    createdAt: now,
+  };
+
+  await db.assets.add(asset);
+  return asset;
 }
 
 // ─── Helpers de testing / dev ──────────────────────────────────────────────
