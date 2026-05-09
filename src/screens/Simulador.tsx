@@ -503,7 +503,8 @@ function ScenarioCard({
 // ─── Mini chart de la simulación ──────────────────────────────────────────
 
 function SimChart({ result }: { result: SimulationResult }) {
-  const width = 360;
+  const W = 360;
+  const width = W;
   const height = 140;
   const padTop = 12;
   const padBot = 8;
@@ -536,7 +537,7 @@ function SimChart({ result }: { result: SimulationResult }) {
     .join(' ')} Z`;
 
   return (
-    <svg width={width} height={height} aria-hidden="true">
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height} aria-hidden="true">
       <defs>
         <linearGradient id="sim-gain" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity="0.30" />

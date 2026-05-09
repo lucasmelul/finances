@@ -27,6 +27,7 @@ import {
   useFxFreshness,
   useHoldings,
   useInsights,
+  useLiquidityMetrics,
   usePortfolioMetrics,
   usePriceMap,
   useRiskMetrics,
@@ -38,7 +39,9 @@ import type { TimelineRange } from '@/lib/timeline';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { AssetRow } from '@/components/composite/AssetRow';
 import { InsightCard } from '@/components/composite/InsightCard';
+import { TipsCarousel } from '@/components/composite/TipsCarousel';
 import { TxRow, type TxRowVM } from '@/components/composite/TxRow';
+import { generateTips } from '@/lib/tips';
 import type { Account, Asset, PortfolioBucket, Transaction } from '@/lib/types';
 
 export function Inicio() {
@@ -53,7 +56,13 @@ export function Inicio() {
   const fx = useFx();
   const portfolio = usePortfolioMetrics();
   const risk = useRiskMetrics();
+  const liquidity = useLiquidityMetrics();
   const insights = useInsights();
+
+  const tips = useMemo(
+    () => generateTips({ assets, holdings, prices, fx, portfolio, risk, liquidity }),
+    [assets, holdings, prices, fx, portfolio, risk, liquidity],
+  );
 
   // VM de filas de activos (top movers).
   const rows = useMemo(() => {
@@ -158,7 +167,19 @@ export function Inicio() {
       {/* ─── 4. FX card ─── */}
       <FxCard />
 
-      {/* ─── 5. Top activos ─── */}
+      {/* ─── 5. Tips carousel ─── */}
+      {tips.length > 0 && (
+        <section>
+          <div className="mb-2.5 px-1">
+            <h2 className="text-sm font-semibold tracking-tight text-text-primary">
+              Tips e insights
+            </h2>
+          </div>
+          <TipsCarousel tips={tips} />
+        </section>
+      )}
+
+      {/* ─── 6. Top activos ─── */}
       <section>
         <div className="mb-2.5 flex items-center justify-between px-1">
           <h2 className="text-sm font-semibold tracking-tight text-text-primary">
@@ -514,7 +535,7 @@ function CapitalTimelineCard({ hidden }: { hidden: boolean }) {
 }
 
 function TimelineChart({ points }: { points: import('@/lib/timeline').CapitalTimelinePoint[] }) {
-  const width = 360;
+  const W = 360;
   const height = 120;
   const padTop = 8;
   const padBot = 4;
@@ -526,7 +547,7 @@ function TimelineChart({ points }: { points: import('@/lib/timeline').CapitalTim
   const minV = 0;
   const range = maxV - minV || 1;
   const innerH = height - padTop - padBot;
-  const stepX = width / (points.length - 1);
+  const stepX = W / (points.length - 1);
   const yFor = (v: number) =>
     padTop + innerH - ((v - minV) / range) * innerH;
 
@@ -536,10 +557,10 @@ function TimelineChart({ points }: { points: import('@/lib/timeline').CapitalTim
   const investedPath = points
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * stepX).toFixed(2)},${yFor(p.investedUSD).toFixed(2)}`)
     .join(' ');
-  const valueArea = `${valuePath} L${width.toFixed(2)},${height} L0,${height} Z`;
+  const valueArea = `${valuePath} L${W.toFixed(2)},${height} L0,${height} Z`;
 
   return (
-    <svg width={width} height={height} aria-hidden="true">
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height} aria-hidden="true">
       <defs>
         <linearGradient id="ct-grad" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity="0.25" />
@@ -547,21 +568,8 @@ function TimelineChart({ points }: { points: import('@/lib/timeline').CapitalTim
         </linearGradient>
       </defs>
       <path d={valueArea} fill="url(#ct-grad)" />
-      <path
-        d={investedPath}
-        stroke="hsl(var(--text-secondary))"
-        strokeWidth="1.4"
-        strokeDasharray="4 3"
-        fill="none"
-      />
-      <path
-        d={valuePath}
-        stroke="hsl(var(--accent))"
-        strokeWidth="2"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d={investedPath} stroke="hsl(var(--text-secondary))" strokeWidth="1.4" strokeDasharray="4 3" fill="none" />
+      <path d={valuePath} stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

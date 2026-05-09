@@ -54,7 +54,13 @@ export function LineChart({
   const last = points[points.length - 1];
 
   return (
-    <svg width={width} height={height} className={className} aria-hidden="true">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width="100%"
+      height={height}
+      className={className}
+      aria-hidden="true"
+    >
       {srHigh != null && (
         <g>
           <line
