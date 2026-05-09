@@ -13,7 +13,6 @@
 import type { Asset } from '@/lib/types';
 import type { HoldingAggregate, PriceLookup, FxView } from '@/lib/holdings';
 import type { PortfolioMetrics, RiskMetrics, LiquidityMetrics } from '@/lib/metrics';
-import { priceInUSD } from '@/lib/holdings';
 import { fmtMoney } from '@/lib/format';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -148,7 +147,7 @@ export interface TipsContext {
 
 function buildDynamicTips(ctx: TipsContext): TipCard[] {
   const tips: TipCard[] = [];
-  const { assets, holdings, prices, fx, portfolio, risk, liquidity } = ctx;
+  const { assets, prices, portfolio, risk, liquidity } = ctx;
 
   // 1. Mejor y peor activo del día
   if (prices && assets) {
