@@ -402,9 +402,9 @@ function ResultCards({ result }: { result: SimulationResult }) {
         tone={positive ? 'positive' : 'negative'}
       />
       <ResultCard
-        label="CAGR aprox."
+        label="TIR anualizada"
         value={`${result.cagrPct.toFixed(2)}%`}
-        sub="anualizado equiv."
+        sub="retorno efectivo real"
       />
     </section>
   );

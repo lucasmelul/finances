@@ -57,6 +57,39 @@ export interface SimulationResult {
 // ─── Cálculo ───────────────────────────────────────────────────────────────
 
 /**
+ * Newton-Raphson para la TIR mensual de un flujo DCA.
+ * Cash flows: -initialCapital en t=0, -monthly en t=1..N-1,
+ * (finalValue - monthly) en t=N (último aporte neto contra el cobro).
+ */
+function computeMonthlyIRR(
+  initialCapital: number,
+  monthlyContribution: number,
+  months: number,
+  finalValue: number,
+): number {
+  const cfs = new Array<number>(months + 1).fill(-monthlyContribution);
+  cfs[0] = -initialCapital;
+  cfs[months] += finalValue; // net inflow at maturity
+
+  let r = 0.008; // 0.8% mensual como punto de partida (~10% anual)
+  for (let iter = 0; iter < 200; iter++) {
+    let npv = 0;
+    let dnpv = 0;
+    for (let t = 0; t <= months; t++) {
+      const disc = Math.pow(1 + r, -t);
+      npv += cfs[t] * disc;
+      if (t > 0) dnpv -= t * cfs[t] * Math.pow(1 + r, -(t + 1));
+    }
+    if (Math.abs(dnpv) < 1e-12) break;
+    const delta = npv / dnpv;
+    r -= delta;
+    if (r <= -0.999) r = 0.001; // evitar divergencia
+    if (Math.abs(delta) < 1e-10) break;
+  }
+  return r;
+}
+
+/**
  * Corre la simulación. Maneja edge cases:
  *  - duración 0 → devuelve solo el punto inicial
  *  - retorno 0 → no compone (resultado = inicial + aportes × meses)
@@ -92,14 +125,19 @@ export function runSimulation(input: SimulationInput): SimulationResult {
   const returnPct =
     totalInvestedUSD > 0 ? (totalReturnUSD / totalInvestedUSD) * 100 : 0;
 
-  // CAGR: tasa anual efectiva equivalente. Solo definida si invested > 0
-  // y duración > 0. Para flujos con aportes mensuales, una versión exacta
-  // requiere TIR (Newton) — usamos una aproximación basada en valor final
-  // sobre invested promedio; es indicativa, no precisa.
+  // TIR (IRR): tasa interna de retorno mensual, anualizada a efectivo anual.
+  // Para DCA con aportes mensuales, la TIR es la métrica correcta — computa
+  // el r que iguala el VPN de los flujos reales a 0 (Newton-Raphson).
+  // Resultado: debe quedar muy cerca del `expectedAnnualReturnPct` ingresado.
   let cagrPct = 0;
   if (totalInvestedUSD > 0 && durationMonths > 0 && finalValueUSD > 0) {
-    const years = durationMonths / 12;
-    cagrPct = (Math.pow(finalValueUSD / totalInvestedUSD, 1 / years) - 1) * 100;
+    const monthlyIRR = computeMonthlyIRR(
+      initialCapitalUSD,
+      monthlyContributionUSD,
+      durationMonths,
+      finalValueUSD,
+    );
+    cagrPct = (Math.pow(1 + monthlyIRR, 12) - 1) * 100;
   }
 
   return {

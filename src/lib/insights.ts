@@ -243,6 +243,43 @@ const rulePricesStale: Rule = ({ pricesAgeSeconds }) => {
   };
 };
 
+/** Stables ociosas: mucho porcentaje en stablecoins sin staking. */
+const ruleIdleStables: Rule = ({ risk, portfolio }) => {
+  if (!risk || !portfolio) return null;
+  if (risk.stableExposurePct < 20) return null;
+  if (portfolio.totalValueUSD < 200) return null;
+  return {
+    id: 'efficiency-idle-stables',
+    type: 'efficiency',
+    severity: risk.stableExposurePct > 40 ? 'medium' : 'low',
+    title: `${risk.stableExposurePct.toFixed(0)}% en stablecoins paradas`,
+    description:
+      'Tenés mucha liquidez en stables sin generar rendimiento. Considerá hacer staking o moverlas a un activo productivo.',
+    actionLabel: 'Ver staking',
+    actionTarget: '/staking',
+  };
+};
+
+/** Falta de equities: portfolio sin acciones, CEDEARs ni ETFs. */
+const ruleLowDiversification: Rule = ({ risk, portfolio }) => {
+  if (!risk || !portfolio) return null;
+  if (portfolio.totalValueUSD < 1000) return null;
+  if (risk.equityExposurePct >= 5) return null;
+  // Solo aplica si el portfolio NO es principalmente cash/stables
+  const investedPct = 100 - risk.stableExposurePct - risk.cashExposurePct;
+  if (investedPct < 10) return null;
+  return {
+    id: 'risk-no-equity',
+    type: 'risk',
+    severity: 'low',
+    title: 'Sin exposición a acciones o CEDEARs',
+    description:
+      'Agregar equities (CEDEARs, ETFs) puede bajar la volatilidad del portfolio. El S&P 500 históricamente rindió ~10% anual.',
+    actionLabel: 'Buscar activos',
+    actionTarget: '/chat',
+  };
+};
+
 /** Estado positivo: si nada disparó, mostrar un mensaje neutro/discreto. */
 const ruleAllGood: Rule = ({ portfolio, risk, liquidity }) => {
   // Solo se emite si TODAS las reglas previas devolverían null (este check
@@ -266,9 +303,11 @@ const RULES: Rule[] = [
   ruleTop3Concentration,
   ruleCryptoExposure,
   ruleIdleCapital,
+  ruleIdleStables,
   rulePerformanceDown,
   rulePerformanceUp,
   ruleStakingUnderperform,
+  ruleLowDiversification,
   ruleBuyOpportunities,
   ruleFxStale,
   rulePricesStale,

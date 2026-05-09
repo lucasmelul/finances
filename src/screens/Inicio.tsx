@@ -29,9 +29,11 @@ import {
   useInsights,
   usePortfolioMetrics,
   usePriceMap,
+  useRiskMetrics,
 } from '@/lib/db/derived';
 import { buildAssetRowVMs } from '@/lib/holdings';
 import { metricToDisplay } from '@/lib/metrics';
+import type { RiskMetrics } from '@/lib/metrics';
 import type { TimelineRange } from '@/lib/timeline';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { AssetRow } from '@/components/composite/AssetRow';
@@ -50,6 +52,7 @@ export function Inicio() {
   const prices = usePriceMap();
   const fx = useFx();
   const portfolio = usePortfolioMetrics();
+  const risk = useRiskMetrics();
   const insights = useInsights();
 
   // VM de filas de activos (top movers).
@@ -136,7 +139,12 @@ export function Inicio() {
         hidden={hidden}
       />
 
-      {/* ─── 2. INSIGHTS — "Qué hacer hoy" ─── */}
+      {/* ─── 2. Distribución por tipo ─── */}
+      {risk && !hidden && (
+        <AllocationBar risk={risk} hidden={hidden} />
+      )}
+
+      {/* ─── 3. INSIGHTS — "Qué hacer hoy" ─── */}
       {insights && insights.length > 0 && !hidden && (
         <InsightsBlock
           insights={insights}
@@ -604,6 +612,56 @@ function FxCard() {
             <div className="text-[13px] font-semibold text-text-primary tabular-nums">
               ${fmt(it.value, 0)}
             </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── Allocation bar ───────────────────────────────────────────────────────
+
+interface AllocationSegment {
+  label: string;
+  pct: number;
+  color: string;
+}
+
+function AllocationBar({ risk, hidden }: { risk: RiskMetrics; hidden: boolean }) {
+  const segments: AllocationSegment[] = [
+    { label: 'Cripto', pct: risk.cryptoExposurePct, color: '#6366F1' },
+    { label: 'Acciones', pct: risk.equityExposurePct, color: '#22D3EE' },
+    { label: 'Stables', pct: risk.stableExposurePct, color: '#34D399' },
+    { label: 'Bonos', pct: risk.bondExposurePct, color: '#FB923C' },
+    { label: 'Efectivo', pct: risk.cashExposurePct, color: '#A78BFA' },
+  ].filter((s) => s.pct > 0.5);
+
+  if (segments.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl border border-border-subtle bg-bg-surface p-3.5">
+      <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+        Distribución del portfolio
+      </div>
+      <div className="mb-2.5 flex h-2.5 overflow-hidden rounded-full bg-bg-elevated">
+        {segments.map((s) => (
+          <div
+            key={s.label}
+            style={{ width: `${s.pct}%`, background: s.color }}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {segments.map((s) => (
+          <div key={s.label} className="flex items-center gap-1.5 text-[11px]">
+            <span
+              className="h-2 w-2 shrink-0 rounded-sm"
+              style={{ background: s.color }}
+            />
+            <span className="text-text-secondary">{s.label}</span>
+            <span className="font-semibold tabular-nums text-text-primary">
+              {hidden ? '••' : `${s.pct.toFixed(0)}%`}
+            </span>
           </div>
         ))}
       </div>

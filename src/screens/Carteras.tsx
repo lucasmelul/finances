@@ -12,15 +12,17 @@ import { cn } from '@/lib/utils';
 import { fmtMoney } from '@/lib/format';
 import { useUIStore } from '@/lib/store';
 import { useAssets } from '@/lib/db/queries';
-import { useFx, useHoldings, usePriceMap } from '@/lib/db/derived';
+import { useFx, useHoldings, usePriceMap, useRiskMetrics } from '@/lib/db/derived';
 import { buildAssetRowVMs, convertUSD } from '@/lib/holdings';
 import { BUCKET_LABEL } from '@/components/ui/BucketChip';
 import { Donut } from '@/components/charts/Donut';
 import { AssetRow } from '@/components/composite/AssetRow';
 import { portfolioIdForBucket } from '@/data/portfolios';
 import type { PortfolioBucket } from '@/lib/types';
+import type { RiskMetrics } from '@/lib/metrics';
 
 const BUCKETS: PortfolioBucket[] = ['largo', 'medio', 'corto', 'trade'];
+type CarterasTab = PortfolioBucket | 'tipo';
 
 const BUCKET_DESC: Record<PortfolioBucket, string> = {
   largo: 'HODL, jubilación',
@@ -32,6 +34,9 @@ const BUCKET_DESC: Record<PortfolioBucket, string> = {
 /** Paleta para el donut (loop si hay >6 activos). */
 const SLICE_COLORS = ['#6366F1', '#22D3EE', '#34D399', '#FB923C', '#A78BFA', '#F472B6'];
 
+function isCarterasTab(value: string | undefined): value is CarterasTab {
+  return value === 'largo' || value === 'medio' || value === 'corto' || value === 'trade' || value === 'tipo';
+}
 function isBucket(value: string | undefined): value is PortfolioBucket {
   return value === 'largo' || value === 'medio' || value === 'corto' || value === 'trade';
 }
@@ -39,13 +44,15 @@ function isBucket(value: string | undefined): value is PortfolioBucket {
 export function Carteras() {
   const navigate = useNavigate();
   const params = useParams<{ bucket?: string }>();
-  const activeBucket: PortfolioBucket = isBucket(params.bucket) ? params.bucket : 'largo';
+  const activeTab: CarterasTab = isCarterasTab(params.bucket) ? params.bucket : 'largo';
+  const activeBucket: PortfolioBucket = isBucket(activeTab) ? activeTab : 'largo';
 
   const { displayCurrency, hidden } = useUIStore();
   const assets = useAssets();
   const holdings = useHoldings();
   const prices = usePriceMap();
   const fx = useFx();
+  const risk = useRiskMetrics();
 
   const portfolioId = portfolioIdForBucket(activeBucket);
 
@@ -72,7 +79,7 @@ export function Carteras() {
 
   return (
     <div className="flex flex-col gap-3.5 pb-6">
-      {/* Bucket tabs */}
+      {/* Tabs — buckets + "Por tipo" */}
       <div className="flex gap-1.5 rounded-xl border border-border-subtle bg-bg-surface p-1">
         {BUCKETS.map((b) => (
           <button
@@ -81,7 +88,7 @@ export function Carteras() {
             onClick={() => navigate(`/carteras/${b}`)}
             className={cn(
               'h-9 flex-1 rounded-lg text-xs font-semibold transition-colors',
-              activeBucket === b
+              activeTab === b
                 ? 'bg-bg-elevated text-text-primary shadow-[0_1px_0_hsl(var(--border-hover))]'
                 : 'text-text-secondary hover:text-text-primary',
             )}
@@ -89,7 +96,25 @@ export function Carteras() {
             {BUCKET_LABEL[b]}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => navigate('/carteras/tipo')}
+          className={cn(
+            'h-9 flex-1 rounded-lg text-xs font-semibold transition-colors',
+            activeTab === 'tipo'
+              ? 'bg-bg-elevated text-text-primary shadow-[0_1px_0_hsl(var(--border-hover))]'
+              : 'text-text-secondary hover:text-text-primary',
+          )}
+        >
+          Tipo
+        </button>
       </div>
+
+      {/* Vista "Por tipo" */}
+      {activeTab === 'tipo' && <ByTypeView risk={risk} hidden={hidden} />}
+
+      {/* Contenido por bucket — se oculta cuando el tab es "tipo" */}
+      {activeTab !== 'tipo' && (<>
 
       {/* Resumen del bucket */}
       <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
@@ -191,6 +216,129 @@ export function Carteras() {
               onClick={(id) => navigate(`/asset/${id}`)}
             />
           ))}
+        </div>
+      </section>
+      </>)}
+    </div>
+  );
+}
+
+// ─── Vista "Por tipo" ──────────────────────────────────────────────────────
+
+const TYPE_COLORS: Record<string, string> = {
+  Cripto:    '#6366F1',
+  Acciones:  '#22D3EE',
+  Stables:   '#34D399',
+  Bonos:     '#FB923C',
+  Efectivo:  '#A78BFA',
+};
+
+function ByTypeView({
+  risk,
+  hidden,
+}: {
+  risk: RiskMetrics | undefined;
+  hidden: boolean;
+}) {
+  if (!risk) {
+    return (
+      <div className="flex flex-col gap-3.5">
+        <div className="rounded-2xl border border-border-subtle bg-bg-surface px-4 py-8 text-center text-[13px] text-text-muted">
+          Cargando distribución…
+        </div>
+      </div>
+    );
+  }
+
+  const segments = [
+    { label: 'Cripto',   pct: risk.cryptoExposurePct },
+    { label: 'Acciones', pct: risk.equityExposurePct },
+    { label: 'Stables',  pct: risk.stableExposurePct },
+    { label: 'Bonos',    pct: risk.bondExposurePct },
+    { label: 'Efectivo', pct: risk.cashExposurePct },
+  ].filter((s) => s.pct > 0.5);
+
+  const totalValue = risk.ranking.reduce((s, r) => s + r.valueUSD, 0);
+
+  if (segments.length === 0) {
+    return (
+      <div className="flex flex-col gap-3.5">
+        <div className="rounded-2xl border border-border-subtle bg-bg-surface px-4 py-8 text-center text-[13px] text-text-muted">
+          Cargá operaciones para ver la distribución por tipo.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {/* Donut por tipo */}
+      <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+          Por categoría
+        </div>
+        <div className="flex items-center gap-4">
+          <Donut
+            slices={segments.map((s) => ({
+              label: s.label,
+              value: s.pct,
+              color: TYPE_COLORS[s.label] ?? '#9CA3AF',
+            }))}
+            size={130}
+            thickness={18}
+            label={hidden ? '••' : `${segments.length}`}
+            sublabel="TIPOS"
+          />
+          <div className="flex flex-1 flex-col gap-2">
+            {segments.map((s) => (
+              <div key={s.label} className="flex items-center gap-2 text-[12px]">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                  style={{ background: TYPE_COLORS[s.label] ?? '#9CA3AF' }}
+                />
+                <span className="flex-1 font-medium text-text-primary">{s.label}</span>
+                <span className="tabular-nums text-text-secondary">
+                  {hidden ? '••' : `${s.pct.toFixed(1)}%`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Top activos del portfolio global */}
+      <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
+        <div className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+          Top activos (portfolio global)
+        </div>
+        <div className="flex flex-col gap-2">
+          {risk.ranking.slice(0, 8).map((row) => (
+            <div key={row.assetId} className="flex items-center justify-between text-[13px]">
+              <span className="font-semibold text-text-primary">{row.ticker}</span>
+              <div className="flex items-center gap-3 tabular-nums">
+                <div className="w-20 overflow-hidden rounded-full bg-bg-elevated" style={{ height: 4 }}>
+                  <div
+                    className="h-full rounded-full bg-accent"
+                    style={{ width: `${row.pct}%` }}
+                  />
+                </div>
+                <span className="w-10 text-right text-text-secondary">
+                  {hidden ? '••' : `${row.pct.toFixed(1)}%`}
+                </span>
+                <span className="w-20 text-right text-text-muted text-[11px]">
+                  {hidden ? '••••' : fmtMoney(row.valueUSD, 'USD')}
+                </span>
+              </div>
+            </div>
+          ))}
+          {totalValue > 0 && (
+            <div className="mt-1 border-t border-border-subtle pt-2 flex justify-between text-[11px] text-text-muted">
+              <span>Total portfolio</span>
+              <span className="font-semibold text-text-secondary tabular-nums">
+                {hidden ? '••••' : fmtMoney(totalValue, 'USD')}
+              </span>
+            </div>
+          )}
         </div>
       </section>
     </div>
