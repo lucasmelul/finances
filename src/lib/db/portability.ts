@@ -22,6 +22,7 @@ import { db } from './schema';
 import type {
   Account,
   Asset,
+  PriceCache,
   Transaction,
   StakingRule,
   WatchlistEntry,
@@ -39,6 +40,8 @@ export interface DbExport {
   stakingRules: StakingRule[];
   yieldAccruals: YieldAccrual[];
   watchlist: WatchlistEntry[];
+  /** Precios iniciales opcionales — útil para activos sin feed automático (cash). */
+  priceCache?: PriceCache[];
 }
 
 export async function exportDatabase(): Promise<DbExport> {
@@ -89,9 +92,11 @@ export async function importDatabase(data: unknown): Promise<{ imported: number 
   const { accounts, assets, transactions, stakingRules, yieldAccruals, watchlist } = dump;
   let imported = 0;
 
+  const { priceCache = [] } = dump;
+
   await db.transaction(
     'rw',
-    [db.accounts, db.assets, db.transactions, db.stakingRules, db.yieldAccruals, db.watchlist],
+    [db.accounts, db.assets, db.transactions, db.stakingRules, db.yieldAccruals, db.watchlist, db.priceCache],
     async () => {
       if (accounts.length) { await db.accounts.bulkPut(accounts); imported += accounts.length; }
       if (assets.length) { await db.assets.bulkPut(assets); imported += assets.length; }
@@ -99,6 +104,7 @@ export async function importDatabase(data: unknown): Promise<{ imported: number 
       if (stakingRules.length) { await db.stakingRules.bulkPut(stakingRules); imported += stakingRules.length; }
       if (yieldAccruals.length) { await db.yieldAccruals.bulkPut(yieldAccruals); imported += yieldAccruals.length; }
       if (watchlist.length) { await db.watchlist.bulkPut(watchlist); imported += watchlist.length; }
+      if (priceCache.length) { await db.priceCache.bulkPut(priceCache); imported += priceCache.length; }
     },
   );
 
@@ -115,6 +121,10 @@ function validate(data: unknown): DbExport {
   }
   if (!Array.isArray(d.accounts)) throw new Error('Backup inválido: falta campo "accounts".');
   if (!Array.isArray(d.transactions)) throw new Error('Backup inválido: falta campo "transactions".');
+  // priceCache es opcional — si viene, debe ser array
+  if (d.priceCache !== undefined && !Array.isArray(d.priceCache)) {
+    throw new Error('Backup inválido: campo "priceCache" debe ser un array.');
+  }
   return d;
 }
 
