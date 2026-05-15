@@ -19,6 +19,7 @@ import { TagBadge } from '@/components/ui/TagBadge';
 import { Button } from '@/components/ui/Button';
 import { NuevaCuentaDialog } from '@/components/dialogs/NuevaCuentaDialog';
 import { EditCuentaDialog } from '@/components/dialogs/EditCuentaDialog';
+import { TransferDialog } from '@/components/dialogs/TransferDialog';
 import type { Account, AccountKind, AccountTag } from '@/lib/types';
 
 type Filter = 'all' | 'A' | 'B';
@@ -46,6 +47,7 @@ export function Cuentas() {
   const [filter, setFilter] = useState<Filter>('all');
   const [newAccountOpen, setNewAccountOpen] = useState(false);
   const [editAccount, setEditAccount] = useState<Account | null>(null);
+  const [transferAccountId, setTransferAccountId] = useState<string | null>(null);
 
   // Only show non-archived accounts in the list
   const activeAccounts = useMemo(() => accounts?.filter((a) => !a.archivedAt), [accounts]);
@@ -196,6 +198,14 @@ export function Cuentas() {
               </div>
               <button
                 type="button"
+                aria-label="Retirar / Transferir"
+                onClick={() => setTransferAccountId(acc.id)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg-elevated hover:text-text-primary"
+              >
+                <Icon name="arrow-up" size={14} />
+              </button>
+              <button
+                type="button"
                 aria-label="Editar cuenta"
                 onClick={() => setEditAccount(acc)}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg-elevated hover:text-text-primary"
@@ -212,6 +222,11 @@ export function Cuentas() {
         account={editAccount}
         open={editAccount !== null}
         onOpenChange={(o) => { if (!o) setEditAccount(null); }}
+      />
+      <TransferDialog
+        open={transferAccountId !== null}
+        onOpenChange={(o) => { if (!o) setTransferAccountId(null); }}
+        defaultFromAccountId={transferAccountId ?? undefined}
       />
     </div>
   );

@@ -94,6 +94,81 @@ export async function createTransaction(
   return tx;
 }
 
+// ─── Transfer (retiro / entre cuentas) ────────────────────────────────────
+
+export interface CreateTransferInput {
+  assetId: string;
+  fromAccountId: string;
+  /** Si se omite → retiro puro (solo genera `transfer_out`, el dinero sale del portfolio). */
+  toAccountId?: string;
+  bucket?: PortfolioBucket;
+  portfolioId?: string;
+  qty: number;
+  unitPrice: number;
+  priceCurrency: Currency;
+  date?: string;
+  notes?: string;
+}
+
+/**
+ * Registra un retiro o una transferencia entre cuentas.
+ *
+ *  - **Retiro** (`toAccountId` omitido): crea un único `transfer_out` en
+ *    `fromAccountId`. El dinero abandona el portfolio.
+ *  - **Entre cuentas** (`toAccountId` presente): crea `transfer_out` +
+ *    `transfer_in` de forma atómica en una sola transacción Dexie.
+ *
+ * Devuelve las transacciones creadas (1 o 2).
+ */
+export async function createTransfer(input: CreateTransferInput): Promise<Transaction[]> {
+  if (input.toAccountId && input.toAccountId === input.fromAccountId) {
+    throw new Error('La cuenta de destino debe ser distinta a la de origen.');
+  }
+
+  const now = new Date().toISOString();
+  const portfolioId =
+    input.portfolioId ??
+    (input.bucket ? portfolioIdForBucket(input.bucket) : portfolioIdForBucket('medio'));
+  const latestFx = await loadLatestFxSnapshot();
+
+  const base = {
+    assetId: input.assetId,
+    portfolioId,
+    qty: input.qty,
+    unitPrice: input.unitPrice,
+    priceCurrency: input.priceCurrency,
+    date: input.date ?? now,
+    fxSnapshot: latestFx,
+    notes: input.notes,
+    source: 'form' as const,
+    createdAt: now,
+  };
+
+  const outTx: Transaction = {
+    id: newId(),
+    kind: 'transfer_out',
+    accountId: input.fromAccountId,
+    ...base,
+  };
+
+  const txs: Transaction[] = [outTx];
+
+  if (input.toAccountId) {
+    txs.push({
+      id: newId(),
+      kind: 'transfer_in',
+      accountId: input.toAccountId,
+      ...base,
+    });
+  }
+
+  await db.transaction('rw', db.transactions, async () => {
+    for (const tx of txs) await db.transactions.add(tx);
+  });
+
+  return txs;
+}
+
 /**
  * Lee el FX más fresco para embeber como `fxSnapshot` en la tx.
  * Si no hay nada en cache (primer arranque sin polling), usa el seed.
