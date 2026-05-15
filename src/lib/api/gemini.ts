@@ -137,6 +137,31 @@ const FUNCTIONS: GeminiFunctionDeclaration[] = [
     },
   },
   {
+    name: 'create_transfer',
+    description:
+      'Registra un retiro de dinero de una cuenta O una transferencia de activos entre dos cuentas del usuario. ' +
+      'Usá esta tool (no create_transaction) cuando el usuario diga "retiré", "saqué", "pasé de X a Y", "moví", "transferí".',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        ticker: { type: 'STRING', description: 'Ticker del activo (BTC, USDT, USD, ARS, etc.)' },
+        amount: { type: 'NUMBER', description: 'Cantidad en unidades del activo' },
+        fromAccountName: { type: 'STRING', description: 'Cuenta de origen' },
+        toAccountName: { type: 'STRING', description: 'Cuenta de destino. Omitir si es retiro puro.' },
+        bucket: { type: 'STRING', enum: ['corto', 'medio', 'largo', 'trade'] },
+        date: { type: 'STRING', description: 'ISO date (YYYY-MM-DD)' },
+        notes: { type: 'STRING' },
+        missingFields: {
+          type: 'ARRAY',
+          items: { type: 'STRING' },
+          description: 'Campos críticos faltantes. Vacío si todo está claro.',
+        },
+        assistantMessage: { type: 'STRING' },
+      },
+      required: ['assistantMessage'],
+    },
+  },
+  {
     name: 'search_asset',
     description: 'Busca un activo en biblioteca + APIs externas. Usar para "buscá X", "qué es X".',
     parameters: {
@@ -150,13 +175,14 @@ const FUNCTIONS: GeminiFunctionDeclaration[] = [
   },
 ];
 
-// ─── Prompt del sistema (mismo que Anthropic) ─────────────────────────────
+// ─── Prompt del sistema ────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Sos el asistente del Portfolio Tracker, una app argentina para registrar inversiones (cripto, CEDEARs, ETFs, bonos, fondos).
 
 Reglas:
 - Respondé en español rioplatense, breve y casual ("Dale", "Listo", "Perfecto").
-- Si el usuario describe una operación, usá la tool create_transaction.
+- Si el usuario describe una operación de compra/venta/yield, usá create_transaction.
+- Si el usuario menciona un retiro o una transferencia entre cuentas, usá create_transfer.
 - Si pregunta por su portfolio, usá query_portfolio.
 - Si pide simular, usá run_simulation.
 - Si busca un asset, usá search_asset.
@@ -173,7 +199,13 @@ Convenciones AR:
 - Buckets: corto (<6m), mediano/medio (6m-2a), largo (HODL), trade (especulativo)
 - Default bucket = "largo" si no se aclara
 
-Si falta info crítica para create_transaction (qty/amount, ticker, kind), agregá los campos a missingFields y armá una pregunta amigable. Nunca inventes valores.`;
+Cuándo usar create_transfer (NO create_transaction):
+- "retiré 500 USD de Nexo" → retiro puro (fromAccountName=Nexo, sin toAccountName)
+- "saqué 200 USDT de BingX" → retiro puro
+- "pasé 0.01 BTC de Binance a Nexo" → entre cuentas (fromAccountName=Binance, toAccountName=Nexo)
+- "moví 1000 USDT de BingX a Galicia" → entre cuentas
+
+Si falta info crítica, agregá los campos a missingFields y armá una pregunta amigable. Nunca inventes valores.`;
 
 // ─── Tipos de respuesta ────────────────────────────────────────────────────
 
@@ -275,6 +307,23 @@ function parseFunctionCall(call: {
       return {
         type: 'create_transaction',
         data: pickTransactionData(args),
+        missingFields: Array.isArray(args.missingFields)
+          ? (args.missingFields as string[])
+          : [],
+        assistantMessage: msg,
+      };
+    case 'create_transfer':
+      return {
+        type: 'create_transfer',
+        data: {
+          ticker: args.ticker as string | undefined,
+          amount: args.amount as number | undefined,
+          fromAccountName: args.fromAccountName as string | undefined,
+          toAccountName: args.toAccountName as string | undefined,
+          bucket: args.bucket as 'corto' | 'medio' | 'largo' | 'trade' | undefined,
+          date: args.date as string | undefined,
+          notes: args.notes as string | undefined,
+        },
         missingFields: Array.isArray(args.missingFields)
           ? (args.missingFields as string[])
           : [],

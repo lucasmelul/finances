@@ -27,10 +27,10 @@ import { TagBadge } from '@/components/ui/TagBadge';
 import { BucketChip } from '@/components/ui/BucketChip';
 import { useAccounts, useAssets } from '@/lib/db/queries';
 import { usePortfolioMetrics, usePriceMap, useRiskMetrics, useLiquidityMetrics } from '@/lib/db/derived';
-import { createAsset, createTransaction, deleteTransaction } from '@/lib/db/mutations';
+import { createAsset, createTransaction, createTransfer, deleteTransaction } from '@/lib/db/mutations';
 import { CEDEARS } from '@/data/cedears';
 import { hasAI, interpretMessage, type ChatIntent } from '@/lib/api/chat-ai';
-import type { ExtractedTransactionData } from '@/lib/api/anthropic';
+import type { ExtractedTransactionData, ExtractedTransferData } from '@/lib/api/anthropic';
 import { TxForm } from '@/components/forms/TxForm';
 import type { Account, Asset, PortfolioBucket, Currency, TxKind } from '@/lib/types';
 
@@ -44,14 +44,18 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   timestamp: string;
-  /** Si el mensaje del asistente tiene un recibo parseado adjunto. */
+  /** Si el mensaje tiene un recibo de operación. */
   parsed?: ParsedTx;
-  /** Estado del recibo. Solo aplica si `parsed` está presente. */
+  /** Si el mensaje tiene un recibo de transferencia/retiro. */
+  parsedTransfer?: ParsedTransfer;
+  /** Estado del recibo. */
   status?: ReceiptStatus;
   /** Mensaje de error si `status === 'error'`. */
   errorText?: string;
-  /** ID de la tx persistida (cuando `status === 'confirmed'`) — habilita deshacer. */
+  /** ID de la tx persistida (para undo de operaciones simples). */
   persistedTxId?: string;
+  /** IDs de txs persistidas (para undo de transferencias — pueden ser 2). */
+  persistedTxIds?: string[];
 }
 
 interface ParsedTx {
@@ -67,6 +71,16 @@ interface ParsedTx {
   date: string;
   /** Fields que llenó el sistema (para mostrar chips "auto"). */
   autoFilled: string[];
+}
+
+interface ParsedTransfer {
+  assetId: string;
+  qty: number;
+  fromAccountId: string;
+  /** Ausente = retiro puro (sale del portfolio). */
+  toAccountId?: string;
+  bucket: PortfolioBucket;
+  date: string;
 }
 
 // ─── Stub de parser local ──────────────────────────────────────────────────
@@ -281,6 +295,27 @@ export function Chat() {
         status: parsed ? 'pending' : undefined,
       };
     }
+    if (intent.type === 'create_transfer') {
+      const parsedTransfer = resolveTransferData(intent.data, assets ?? [], accounts ?? []);
+      if (!parsedTransfer) {
+        return {
+          id,
+          role: 'assistant',
+          text: intent.assistantMessage + (intent.missingFields.length
+            ? ''
+            : '\n\nNo pude resolver el activo o la cuenta. Chequeá que estén cargados.'),
+          timestamp: ts,
+        };
+      }
+      return {
+        id,
+        role: 'assistant',
+        text: intent.assistantMessage,
+        timestamp: ts,
+        parsedTransfer,
+        status: 'pending',
+      };
+    }
     if (intent.type === 'query_portfolio') {
       const answer = answerQuery(intent.query, intent.filter, {
         portfolio,
@@ -398,6 +433,55 @@ export function Chat() {
     );
   }, []);
 
+  const handleConfirmTransfer = useCallback(async (msgId: string) => {
+    const msg = messages.find((m) => m.id === msgId);
+    if (!msg?.parsedTransfer) return;
+    const p = msg.parsedTransfer;
+    try {
+      const txs = await createTransfer({
+        assetId: p.assetId,
+        fromAccountId: p.fromAccountId,
+        toAccountId: p.toAccountId,
+        bucket: p.bucket,
+        qty: p.qty,
+        unitPrice: 1,          // para transfers no rastreamos precio unitario
+        priceCurrency: 'USD',
+        date: `${p.date}T12:00:00.000Z`,
+        source: 'chat',
+      });
+      setMessages((all) =>
+        all.map((m) =>
+          m.id === msgId
+            ? { ...m, status: 'confirmed', persistedTxIds: txs.map((t) => t.id) }
+            : m,
+        ),
+      );
+    } catch (err) {
+      setMessages((all) =>
+        all.map((m) =>
+          m.id === msgId
+            ? { ...m, status: 'error', errorText: err instanceof Error ? err.message : 'Error' }
+            : m,
+        ),
+      );
+    }
+  }, [messages]);
+
+  const handleUndoTransfer = useCallback(async (msgId: string) => {
+    const msg = messages.find((m) => m.id === msgId);
+    if (!msg?.persistedTxIds?.length) return;
+    try {
+      for (const txId of msg.persistedTxIds) await deleteTransaction(txId);
+      setMessages((all) =>
+        all.map((m) =>
+          m.id === msgId ? { ...m, status: 'cancelled', persistedTxIds: undefined } : m,
+        ),
+      );
+    } catch (err) {
+      console.error('No se pudo deshacer la transferencia', err);
+    }
+  }, [messages]);
+
   /**
    * Deshace una tx ya confirmada. Borra de Dexie + marca el mensaje como
    * cancelled. Útil cuando el usuario se da cuenta tarde de un error de tipeo
@@ -487,6 +571,8 @@ export function Chat() {
                 onConfirm={() => handleConfirm(msg.id)}
                 onCancel={() => handleCancel(msg.id)}
                 onUndo={() => handleUndo(msg.id)}
+                onConfirmTransfer={() => handleConfirmTransfer(msg.id)}
+                onUndoTransfer={() => handleUndoTransfer(msg.id)}
               />
             ))}
             {isThinking && (
@@ -634,6 +720,40 @@ async function resolveTransactionData(
   };
 }
 
+// ─── Resolución de transfer intent ────────────────────────────────────────
+
+function resolveTransferData(
+  data: ExtractedTransferData,
+  assets: Asset[],
+  accounts: Account[],
+): ParsedTransfer | null {
+  if (!data.ticker || data.amount == null) return null;
+
+  const ticker = data.ticker.toUpperCase();
+  const asset = assets.find((a) => a.ticker.toUpperCase() === ticker);
+  if (!asset) return null;
+
+  // Cuenta de origen: obligatoria
+  const fromAccount = data.fromAccountName
+    ? accounts.find((a) => a.name.toLowerCase() === data.fromAccountName!.toLowerCase())
+    : undefined;
+  if (!fromAccount) return null;
+
+  // Cuenta de destino: opcional (ausente = retiro puro)
+  const toAccount = data.toAccountName
+    ? accounts.find((a) => a.name.toLowerCase() === data.toAccountName!.toLowerCase())
+    : undefined;
+
+  return {
+    assetId: asset.id,
+    qty: data.amount,
+    fromAccountId: fromAccount.id,
+    toAccountId: toAccount?.id,
+    bucket: data.bucket ?? 'medio',
+    date: data.date ?? new Date().toISOString().slice(0, 10),
+  };
+}
+
 // ─── Respuestas a queries del portfolio ───────────────────────────────────
 
 /**
@@ -692,6 +812,8 @@ function Message({
   onConfirm,
   onCancel,
   onUndo,
+  onConfirmTransfer,
+  onUndoTransfer,
 }: {
   msg: ChatMessage;
   assets: Asset[];
@@ -700,6 +822,8 @@ function Message({
   onConfirm: () => void;
   onCancel: () => void;
   onUndo: () => void;
+  onConfirmTransfer: () => void;
+  onUndoTransfer: () => void;
 }) {
   const isUser = msg.role === 'user';
   const time = fmtTime(new Date(msg.timestamp));
@@ -728,6 +852,19 @@ function Message({
           onConfirm={onConfirm}
           onCancel={onCancel}
           onUndo={onUndo}
+        />
+      )}
+      {msg.parsedTransfer && (
+        <TransferReceipt
+          parsed={msg.parsedTransfer}
+          status={msg.status ?? 'pending'}
+          errorText={msg.errorText}
+          assets={assets}
+          accounts={accounts}
+          canUndo={!!msg.persistedTxIds?.length && msg.status === 'confirmed'}
+          onConfirm={onConfirmTransfer}
+          onCancel={onCancel}
+          onUndo={onUndoTransfer}
         />
       )}
       <div className="px-1 font-mono text-[10px] text-text-muted">{time}</div>
@@ -886,4 +1023,115 @@ function computePriceDeviation(
     pctText: `${sign}${pct.toFixed(0)}%`,
     market: marketPrice,
   };
+}
+
+// ─── Recibo de transferencia/retiro ───────────────────────────────────────
+
+function TransferReceipt({
+  parsed,
+  status,
+  errorText,
+  assets,
+  accounts,
+  canUndo,
+  onConfirm,
+  onCancel,
+  onUndo,
+}: {
+  parsed: ParsedTransfer;
+  status: ReceiptStatus;
+  errorText?: string;
+  assets: Asset[];
+  accounts: Account[];
+  canUndo: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  onUndo: () => void;
+}) {
+  const asset = assets.find((a) => a.id === parsed.assetId);
+  const fromAccount = accounts.find((a) => a.id === parsed.fromAccountId);
+  const toAccount = accounts.find((a) => a.id === parsed.toAccountId);
+
+  const isRetiro = !parsed.toAccountId;
+  const isDone = status === 'confirmed' || status === 'cancelled';
+
+  return (
+    <div className="w-full max-w-[85%] overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-[13px]">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b border-border-subtle bg-bg-elevated px-3.5 py-2">
+        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-info/[0.14] text-info">
+          <Icon name="arrow-up" size={13} />
+        </div>
+        <span className="font-semibold text-text-primary">
+          {isRetiro ? 'Retiro' : 'Transferencia'}
+        </span>
+        {status === 'confirmed' && (
+          <span className="ml-auto text-[11px] font-medium text-positive">✓ Registrado</span>
+        )}
+        {status === 'cancelled' && (
+          <span className="ml-auto text-[11px] text-text-muted">Cancelado</span>
+        )}
+        {status === 'error' && (
+          <span className="ml-auto text-[11px] text-negative">Error</span>
+        )}
+      </div>
+
+      {/* Detalle */}
+      <div className="space-y-1.5 px-3.5 py-3">
+        <ReceiptRow label="Activo" value={asset ? `${asset.ticker} — ${asset.name}` : parsed.assetId} />
+        <ReceiptRow label="Cantidad" value={fmt(parsed.qty, 4)} />
+        <ReceiptRow label="Desde" value={fromAccount?.name ?? parsed.fromAccountId} />
+        <ReceiptRow
+          label="Hacia"
+          value={toAccount?.name ?? (isRetiro ? 'Externo (fuera del portfolio)' : '—')}
+        />
+        <ReceiptRow label="Fecha" value={parsed.date} />
+      </div>
+
+      {/* Acciones */}
+      {!isDone && (
+        <div className="flex gap-2 border-t border-border-subtle px-3.5 py-2.5">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-lg border border-border-subtle py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-elevated"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 rounded-lg bg-accent py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            Confirmar
+          </button>
+        </div>
+      )}
+      {canUndo && (
+        <div className="border-t border-border-subtle px-3.5 py-2">
+          <button
+            type="button"
+            onClick={onUndo}
+            className="text-[11px] text-text-muted underline underline-offset-2 hover:text-text-secondary"
+          >
+            Deshacer
+          </button>
+        </div>
+      )}
+      {status === 'error' && errorText && (
+        <div className="border-t border-border-subtle px-3.5 py-2 text-[11px] text-negative">
+          {errorText}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReceiptRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-[11px] uppercase tracking-wider text-text-muted">{label}</span>
+      <span className="text-right font-medium text-text-primary">{value}</span>
+    </div>
+  );
 }

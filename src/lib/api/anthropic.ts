@@ -34,6 +34,12 @@ export type ChatIntent =
       assistantMessage: string;
     }
   | {
+      type: 'create_transfer';
+      data: ExtractedTransferData;
+      missingFields: string[];
+      assistantMessage: string;
+    }
+  | {
       type: 'query_portfolio';
       query: 'total' | 'by_type' | 'by_account' | 'idle' | 'pnl';
       filter?: string; // ej. "crypto", "Binance", "BTC"
@@ -52,6 +58,22 @@ export type ChatIntent =
       query: string;
       assistantMessage: string;
     };
+
+export interface ExtractedTransferData {
+  /** Ticker del activo transferido. */
+  ticker?: string;
+  /** Cantidad en unidades del activo (no en USD). */
+  amount?: number;
+  /** Nombre de la cuenta de origen. */
+  fromAccountName?: string;
+  /** Nombre de la cuenta de destino. Ausente = retiro puro. */
+  toAccountName?: string;
+  /** Bucket/cartera. */
+  bucket?: 'corto' | 'medio' | 'largo' | 'trade';
+  /** ISO date. */
+  date?: string;
+  notes?: string;
+}
 
 export interface ExtractedTransactionData {
   kind?: 'buy' | 'sell' | 'yield' | 'transfer_in' | 'transfer_out';
@@ -133,6 +155,32 @@ const TOOLS: Anthropic.Messages.Tool[] = [
           description:
             'Mensaje natural para mostrar al usuario. Si missingFields está vacío: "Listo, revisá el recibo". Si no: pregunta de slot-filling.',
         },
+      },
+      required: ['assistantMessage'],
+    },
+  },
+  {
+    name: 'create_transfer',
+    description:
+      'Registra un retiro de dinero de una cuenta O una transferencia de activos entre dos cuentas del usuario. ' +
+      'Usá esta tool (no create_transaction) cuando el usuario diga "retiré", "saqué", "pasé de X a Y", "moví", "transferí". ' +
+      'Si falta el ticker o la cuenta de origen, ponelos en missingFields.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        ticker: { type: 'string', description: 'Ticker del activo (BTC, USDT, USD, ARS, etc.)' },
+        amount: { type: 'number', description: 'Cantidad en unidades del activo (no en USD)' },
+        fromAccountName: { type: 'string', description: 'Cuenta de origen' },
+        toAccountName: { type: 'string', description: 'Cuenta de destino. Omitir si es retiro puro (el dinero sale del portfolio).' },
+        bucket: { type: 'string', enum: ['corto', 'medio', 'largo', 'trade'] },
+        date: { type: 'string', description: 'ISO date (YYYY-MM-DD)' },
+        notes: { type: 'string' },
+        missingFields: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Campos críticos faltantes. Vacío si todo está claro.',
+        },
+        assistantMessage: { type: 'string' },
       },
       required: ['assistantMessage'],
     },
@@ -220,6 +268,13 @@ Convenciones AR:
 - Buckets: corto (<6m), mediano/medio (6m-2a), largo (HODL), trade (especulativo)
 - Default bucket = "largo" si no se aclara
 
+Cuándo usar create_transfer (NO create_transaction):
+- "retiré 500 USD de Nexo" → retiro puro (fromAccountName=Nexo, sin toAccountName)
+- "saqué 200 USDT de BingX" → retiro puro
+- "pasé 0.01 BTC de Binance a Nexo" → entre cuentas (fromAccountName=Binance, toAccountName=Nexo)
+- "moví 1000 USDT de BingX a Galicia" → entre cuentas
+- "transferí 500 dólares de Nexo a mi banco" → retiro puro (el banco puede no estar trackeado)
+
 Si falta info crítica para create_transaction (qty/amount, ticker, kind), agregá los campos a missingFields y armá una pregunta amigable. Nunca inventes valores.`;
 
 /**
@@ -275,6 +330,23 @@ function parseToolUse(block: Anthropic.Messages.ToolUseBlock): ChatIntent {
       return {
         type: 'create_transaction',
         data: pickTransactionData(input),
+        missingFields: Array.isArray(input.missingFields)
+          ? (input.missingFields as string[])
+          : [],
+        assistantMessage: msg,
+      };
+    case 'create_transfer':
+      return {
+        type: 'create_transfer',
+        data: {
+          ticker: input.ticker as string | undefined,
+          amount: input.amount as number | undefined,
+          fromAccountName: input.fromAccountName as string | undefined,
+          toAccountName: input.toAccountName as string | undefined,
+          bucket: input.bucket as ExtractedTransferData['bucket'],
+          date: input.date as string | undefined,
+          notes: input.notes as string | undefined,
+        },
         missingFields: Array.isArray(input.missingFields)
           ? (input.missingFields as string[])
           : [],
