@@ -81,6 +81,12 @@ interface ParsedTransfer {
   toAccountId?: string;
   bucket: PortfolioBucket;
   date: string;
+  /**
+   * Precio unitario en USD al momento del retiro. Necesario para que
+   * totalInvestedUSD se ajuste correctamente en metrics. Para activos
+   * cash (USD/USDT) siempre es 1. Para cripto se toma del priceCache.
+   */
+  unitPriceUSD: number;
 }
 
 // ─── Stub de parser local ──────────────────────────────────────────────────
@@ -296,7 +302,7 @@ export function Chat() {
       };
     }
     if (intent.type === 'create_transfer') {
-      const parsedTransfer = resolveTransferData(intent.data, assets ?? [], accounts ?? []);
+      const parsedTransfer = resolveTransferData(intent.data, assets ?? [], accounts ?? [], prices ?? new Map());
       if (!parsedTransfer) {
         return {
           id,
@@ -444,7 +450,7 @@ export function Chat() {
         toAccountId: p.toAccountId,
         bucket: p.bucket,
         qty: p.qty,
-        unitPrice: 1,          // para transfers no rastreamos precio unitario
+        unitPrice: p.unitPriceUSD,
         priceCurrency: 'USD',
         date: `${p.date}T12:00:00.000Z`,
         source: 'chat',
@@ -726,6 +732,7 @@ function resolveTransferData(
   data: ExtractedTransferData,
   assets: Asset[],
   accounts: Account[],
+  prices: Map<string, { price: number; currency: string }>,
 ): ParsedTransfer | null {
   if (!data.ticker || data.amount == null) return null;
 
@@ -744,6 +751,19 @@ function resolveTransferData(
     ? accounts.find((a) => a.name.toLowerCase() === data.toAccountName!.toLowerCase())
     : undefined;
 
+  // Precio unitario en USD: para cash siempre 1, para el resto tomamos del cache.
+  // Necesario para que metrics.totalInvestedUSD se ajuste correctamente en retiros.
+  let unitPriceUSD = 1;
+  if (asset.type !== 'cash') {
+    const p = prices.get(asset.id);
+    if (p) {
+      // priceInUSD no está disponible acá, pero para crypto/stables el precio
+      // ya viene en USD. Para CEDEARs en ARS, usamos 1 como fallback (el impacto
+      // en invested se calcula en ARS de todos modos).
+      unitPriceUSD = p.currency === 'USD' || p.currency === 'USDT' ? p.price : 1;
+    }
+  }
+
   return {
     assetId: asset.id,
     qty: data.amount,
@@ -751,6 +771,7 @@ function resolveTransferData(
     toAccountId: toAccount?.id,
     bucket: data.bucket ?? 'medio',
     date: data.date ?? new Date().toISOString().slice(0, 10),
+    unitPriceUSD,
   };
 }
 
