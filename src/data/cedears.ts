@@ -4,7 +4,13 @@
  * editar acá.
  *
  * Ratio = cuántos CEDEARs equivalen a 1 acción del subyacente.
- * Última revisión: 2026-04-28 (verificar antes de releases).
+ *
+ * Cómo verificar un ratio:
+ *   ratio = precio_subyacente_USD × CCL / precio_CEDEAR_ARS
+ *   (usar precio actual del broker como referencia)
+ *
+ * Última revisión: 2026-05-13 (verificar antes de releases).
+ * Cambios: MELI 4→150, SPY 20→15 (back-calculados de precios reales BYMA).
  */
 
 export interface CedearSeed {
@@ -63,13 +69,15 @@ export const CEDEARS: readonly CedearSeed[] = [
   { ticker: 'GE', underlyingTicker: 'GE', name: 'General Electric', ratio: 10, exchange: 'NYSE' },
 
   // LATAM & emergentes
-  { ticker: 'MELI', underlyingTicker: 'MELI', name: 'MercadoLibre Inc.', ratio: 4, exchange: 'NASDAQ' },
+  // MELI: acción ~$2,057 USD, CDR BYMA ~$19,200 ARS → ratio = 2057×1400/19200 ≈ 150
+  { ticker: 'MELI', underlyingTicker: 'MELI', name: 'MercadoLibre Inc.', ratio: 150, exchange: 'NASDAQ' },
   { ticker: 'BABA', underlyingTicker: 'BABA', name: 'Alibaba Group', ratio: 4, exchange: 'NYSE' },
   { ticker: 'JD', underlyingTicker: 'JD', name: 'JD.com', ratio: 4, exchange: 'NASDAQ' },
   { ticker: 'TSM', underlyingTicker: 'TSM', name: 'Taiwan Semiconductor', ratio: 5, exchange: 'NYSE' },
 
   // ETFs populares
-  { ticker: 'SPY', underlyingTicker: 'SPY', name: 'SPDR S&P 500 ETF', ratio: 20, exchange: 'NYSE' },
+  // SPY: ETF ~$590 USD, CDR BYMA ~$55,175 ARS → ratio = 590×1400/55175 ≈ 15
+  { ticker: 'SPY', underlyingTicker: 'SPY', name: 'SPDR S&P 500 ETF', ratio: 15, exchange: 'NYSE' },
   { ticker: 'QQQ', underlyingTicker: 'QQQ', name: 'Invesco QQQ Trust (Nasdaq 100)', ratio: 15, exchange: 'NASDAQ' },
   { ticker: 'EWZ', underlyingTicker: 'EWZ', name: 'iShares MSCI Brazil', ratio: 5, exchange: 'NYSE' },
   { ticker: 'XLE', underlyingTicker: 'XLE', name: 'Energy Select Sector SPDR', ratio: 4, exchange: 'NYSE' },
