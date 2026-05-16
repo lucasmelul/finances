@@ -98,8 +98,9 @@ export async function createTransaction(
 
 export interface CreateTransferInput {
   assetId: string;
-  fromAccountId: string;
-  /** Si se omite → retiro puro (solo genera `transfer_out`, el dinero sale del portfolio). */
+  /** Cuenta de origen. Requerido para retiros y transferencias. Omitir para depósitos puros. */
+  fromAccountId?: string;
+  /** Cuenta de destino. Requerido para depósitos y transferencias. Omitir para retiros puros. */
   toAccountId?: string;
   bucket?: PortfolioBucket;
   portfolioId?: string;
@@ -111,17 +112,19 @@ export interface CreateTransferInput {
 }
 
 /**
- * Registra un retiro o una transferencia entre cuentas.
+ * Registra un depósito, retiro o transferencia entre cuentas.
  *
- *  - **Retiro** (`toAccountId` omitido): crea un único `transfer_out` en
- *    `fromAccountId`. El dinero abandona el portfolio.
- *  - **Entre cuentas** (`toAccountId` presente): crea `transfer_out` +
- *    `transfer_in` de forma atómica en una sola transacción Dexie.
+ *  - **Depósito** (solo `toAccountId`): crea un `transfer_in`. Dinero nuevo entra al portfolio.
+ *  - **Retiro** (solo `fromAccountId`): crea un `transfer_out`. Dinero sale del portfolio.
+ *  - **Entre cuentas** (ambos): crea `transfer_out` + `transfer_in` atómicamente.
  *
  * Devuelve las transacciones creadas (1 o 2).
  */
 export async function createTransfer(input: CreateTransferInput): Promise<Transaction[]> {
-  if (input.toAccountId && input.toAccountId === input.fromAccountId) {
+  if (!input.fromAccountId && !input.toAccountId) {
+    throw new Error('createTransfer: requiere al menos fromAccountId o toAccountId.');
+  }
+  if (input.fromAccountId && input.toAccountId && input.fromAccountId === input.toAccountId) {
     throw new Error('La cuenta de destino debe ser distinta a la de origen.');
   }
 
@@ -144,15 +147,19 @@ export async function createTransfer(input: CreateTransferInput): Promise<Transa
     createdAt: now,
   };
 
-  const outTx: Transaction = {
-    id: newId(),
-    kind: 'transfer_out',
-    accountId: input.fromAccountId,
-    ...base,
-  };
+  const txs: Transaction[] = [];
 
-  const txs: Transaction[] = [outTx];
+  // Leg de salida (retiro o transferencia)
+  if (input.fromAccountId) {
+    txs.push({
+      id: newId(),
+      kind: 'transfer_out',
+      accountId: input.fromAccountId,
+      ...base,
+    });
+  }
 
+  // Leg de entrada (depósito o transferencia)
   if (input.toAccountId) {
     txs.push({
       id: newId(),

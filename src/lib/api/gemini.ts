@@ -139,15 +139,15 @@ const FUNCTIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'create_transfer',
     description:
-      'Registra un retiro de dinero de una cuenta O una transferencia de activos entre dos cuentas del usuario. ' +
-      'Usá esta tool (no create_transaction) cuando el usuario diga "retiré", "saqué", "pasé de X a Y", "moví", "transferí".',
+      'Registra un depósito, retiro o transferencia entre cuentas. ' +
+      'Usá esta tool (no create_transaction) cuando el usuario diga "deposité", "ingresé", "retiré", "saqué", "pasé de X a Y", "moví", "transferí".',
     parameters: {
       type: 'OBJECT',
       properties: {
         ticker: { type: 'STRING', description: 'Ticker del activo (BTC, USDT, USD, ARS, etc.)' },
         amount: { type: 'NUMBER', description: 'Cantidad en unidades del activo' },
-        fromAccountName: { type: 'STRING', description: 'Cuenta de origen' },
-        toAccountName: { type: 'STRING', description: 'Cuenta de destino. Omitir si es retiro puro.' },
+        fromAccountName: { type: 'STRING', description: 'Cuenta de origen. Omitir para depósitos puros.' },
+        toAccountName: { type: 'STRING', description: 'Cuenta de destino. Omitir para retiros puros.' },
         bucket: { type: 'STRING', enum: ['corto', 'medio', 'largo', 'trade'] },
         date: { type: 'STRING', description: 'ISO date (YYYY-MM-DD)' },
         notes: { type: 'STRING' },
@@ -200,6 +200,8 @@ Convenciones AR:
 - Default bucket = "largo" si no se aclara
 
 Cuándo usar create_transfer (NO create_transaction):
+- "deposité 1000 USD en Nexo" → depósito puro (sin fromAccountName, toAccountName=Nexo)
+- "ingresé plata en Binance" → depósito puro
 - "retiré 500 USD de Nexo" → retiro puro (fromAccountName=Nexo, sin toAccountName)
 - "saqué 200 USDT de BingX" → retiro puro
 - "pasé 0.01 BTC de Binance a Nexo" → entre cuentas (fromAccountName=Binance, toAccountName=Nexo)

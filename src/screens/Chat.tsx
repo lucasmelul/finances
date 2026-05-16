@@ -76,7 +76,8 @@ interface ParsedTx {
 interface ParsedTransfer {
   assetId: string;
   qty: number;
-  fromAccountId: string;
+  /** Ausente = depósito puro (entra al portfolio sin cuenta de origen). */
+  fromAccountId?: string;
   /** Ausente = retiro puro (sale del portfolio). */
   toAccountId?: string;
   bucket: PortfolioBucket;
@@ -446,7 +447,7 @@ export function Chat() {
     try {
       const txs = await createTransfer({
         assetId: p.assetId,
-        fromAccountId: p.fromAccountId,
+        fromAccountId: p.fromAccountId ?? undefined,
         toAccountId: p.toAccountId,
         bucket: p.bucket,
         qty: p.qty,
@@ -740,16 +741,16 @@ function resolveTransferData(
   const asset = assets.find((a) => a.ticker.toUpperCase() === ticker);
   if (!asset) return null;
 
-  // Cuenta de origen: obligatoria
+  // Al menos una cuenta debe estar presente
   const fromAccount = data.fromAccountName
     ? accounts.find((a) => a.name.toLowerCase() === data.fromAccountName!.toLowerCase())
     : undefined;
-  if (!fromAccount) return null;
-
-  // Cuenta de destino: opcional (ausente = retiro puro)
   const toAccount = data.toAccountName
     ? accounts.find((a) => a.name.toLowerCase() === data.toAccountName!.toLowerCase())
     : undefined;
+
+  // Depósito puro: solo toAccount. Retiro puro: solo fromAccount. Ambas: entre cuentas.
+  if (!fromAccount && !toAccount) return null;
 
   // Precio unitario en USD: para cash siempre 1, para el resto tomamos del cache.
   // Necesario para que metrics.totalInvestedUSD se ajuste correctamente en retiros.
@@ -767,7 +768,7 @@ function resolveTransferData(
   return {
     assetId: asset.id,
     qty: data.amount,
-    fromAccountId: fromAccount.id,
+    fromAccountId: fromAccount?.id,
     toAccountId: toAccount?.id,
     bucket: data.bucket ?? 'medio',
     date: data.date ?? new Date().toISOString().slice(0, 10),
@@ -1073,19 +1074,23 @@ function TransferReceipt({
   const fromAccount = accounts.find((a) => a.id === parsed.fromAccountId);
   const toAccount = accounts.find((a) => a.id === parsed.toAccountId);
 
-  const isRetiro = !parsed.toAccountId;
+  const isDeposito = !parsed.fromAccountId && !!parsed.toAccountId;
+  const isRetiro = !!parsed.fromAccountId && !parsed.toAccountId;
+  const label = isDeposito ? 'Depósito' : isRetiro ? 'Retiro' : 'Transferencia';
+  const iconName = isDeposito ? 'arrow-down' : 'arrow-up';
   const isDone = status === 'confirmed' || status === 'cancelled';
 
   return (
     <div className="w-full max-w-[85%] overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-[13px]">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border-subtle bg-bg-elevated px-3.5 py-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-info/[0.14] text-info">
-          <Icon name="arrow-up" size={13} />
+        <div className={cn(
+          'flex h-6 w-6 items-center justify-center rounded-md',
+          isDeposito ? 'bg-positive/[0.12] text-positive' : 'bg-info/[0.14] text-info',
+        )}>
+          <Icon name={iconName} size={13} />
         </div>
-        <span className="font-semibold text-text-primary">
-          {isRetiro ? 'Retiro' : 'Transferencia'}
-        </span>
+        <span className="font-semibold text-text-primary">{label}</span>
         {status === 'confirmed' && (
           <span className="ml-auto text-[11px] font-medium text-positive">✓ Registrado</span>
         )}
@@ -1101,7 +1106,9 @@ function TransferReceipt({
       <div className="space-y-1.5 px-3.5 py-3">
         <ReceiptRow label="Activo" value={asset ? `${asset.ticker} — ${asset.name}` : parsed.assetId} />
         <ReceiptRow label="Cantidad" value={fmt(parsed.qty, 4)} />
-        <ReceiptRow label="Desde" value={fromAccount?.name ?? parsed.fromAccountId} />
+        {!isDeposito && (
+          <ReceiptRow label="Desde" value={fromAccount?.name ?? parsed.fromAccountId ?? '—'} />
+        )}
         <ReceiptRow
           label="Hacia"
           value={toAccount?.name ?? (isRetiro ? 'Externo (fuera del portfolio)' : '—')}

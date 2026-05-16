@@ -162,16 +162,16 @@ const TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: 'create_transfer',
     description:
-      'Registra un retiro de dinero de una cuenta O una transferencia de activos entre dos cuentas del usuario. ' +
-      'Usá esta tool (no create_transaction) cuando el usuario diga "retiré", "saqué", "pasé de X a Y", "moví", "transferí". ' +
-      'Si falta el ticker o la cuenta de origen, ponelos en missingFields.',
+      'Registra un depósito, retiro o transferencia de activos entre cuentas. ' +
+      'Usá esta tool (no create_transaction) cuando el usuario diga "deposité", "ingresé", "retiré", "saqué", "pasé de X a Y", "moví", "transferí". ' +
+      'Si falta el ticker o alguna cuenta requerida, ponelos en missingFields.',
     input_schema: {
       type: 'object',
       properties: {
         ticker: { type: 'string', description: 'Ticker del activo (BTC, USDT, USD, ARS, etc.)' },
         amount: { type: 'number', description: 'Cantidad en unidades del activo (no en USD)' },
-        fromAccountName: { type: 'string', description: 'Cuenta de origen' },
-        toAccountName: { type: 'string', description: 'Cuenta de destino. Omitir si es retiro puro (el dinero sale del portfolio).' },
+        fromAccountName: { type: 'string', description: 'Cuenta de origen. Omitir para depósitos puros.' },
+        toAccountName: { type: 'string', description: 'Cuenta de destino. Omitir para retiros puros.' },
         bucket: { type: 'string', enum: ['corto', 'medio', 'largo', 'trade'] },
         date: { type: 'string', description: 'ISO date (YYYY-MM-DD)' },
         notes: { type: 'string' },
@@ -269,11 +269,13 @@ Convenciones AR:
 - Default bucket = "largo" si no se aclara
 
 Cuándo usar create_transfer (NO create_transaction):
+- "deposité 1000 USD en Nexo" → depósito puro (sin fromAccountName, toAccountName=Nexo)
+- "ingresé plata en Binance" → depósito puro
 - "retiré 500 USD de Nexo" → retiro puro (fromAccountName=Nexo, sin toAccountName)
 - "saqué 200 USDT de BingX" → retiro puro
 - "pasé 0.01 BTC de Binance a Nexo" → entre cuentas (fromAccountName=Binance, toAccountName=Nexo)
 - "moví 1000 USDT de BingX a Galicia" → entre cuentas
-- "transferí 500 dólares de Nexo a mi banco" → retiro puro (el banco puede no estar trackeado)
+- "transferí 500 dólares de Nexo a mi banco" → retiro puro
 
 Si falta info crítica para create_transaction (qty/amount, ticker, kind), agregá los campos a missingFields y armá una pregunta amigable. Nunca inventes valores.`;
 

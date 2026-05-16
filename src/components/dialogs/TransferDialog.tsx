@@ -26,7 +26,7 @@ import type { Currency, PortfolioBucket } from '@/lib/types';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-type TransferMode = 'retiro' | 'entre-cuentas';
+type TransferMode = 'deposito' | 'retiro' | 'entre-cuentas';
 
 const BUCKET_OPTIONS: SelectOption[] = [
   { value: 'largo', label: 'Largo plazo' },
@@ -142,16 +142,30 @@ export function TransferDialog({
     setSubmitError(null);
     try {
       const toAccountId =
-        mode === 'entre-cuentas' && values.toAccountId ? values.toAccountId : undefined;
+        (mode === 'entre-cuentas' || mode === 'deposito') && values.toAccountId
+          ? values.toAccountId
+          : undefined;
+      const fromAccountId =
+        (mode === 'entre-cuentas' || mode === 'retiro') && values.fromAccountId
+          ? values.fromAccountId
+          : undefined;
 
       if (mode === 'entre-cuentas' && !toAccountId) {
         setSubmitError('Elegí una cuenta de destino.');
         return;
       }
+      if (mode === 'deposito' && !toAccountId) {
+        setSubmitError('Elegí la cuenta donde entra el dinero.');
+        return;
+      }
+      if (mode === 'retiro' && !fromAccountId) {
+        setSubmitError('Elegí la cuenta de origen.');
+        return;
+      }
 
       await createTransfer({
         assetId: values.assetId,
-        fromAccountId: values.fromAccountId,
+        fromAccountId,
         toAccountId,
         bucket: values.bucket as PortfolioBucket,
         qty: values.qty,
@@ -193,11 +207,11 @@ export function TransferDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Retiro / Transferencia">
+      <DialogContent title="Depósito / Retiro / Transferencia">
 
         {/* Toggle de modo */}
         <div className="mb-4 flex gap-1 rounded-[10px] border border-border-subtle bg-bg-surface p-1">
-          {(['retiro', 'entre-cuentas'] as const).map((m) => (
+          {(['deposito', 'retiro', 'entre-cuentas'] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -209,21 +223,27 @@ export function TransferDialog({
                   : 'text-text-secondary hover:text-text-primary',
               )}
             >
-              {m === 'retiro' ? 'Retiro' : 'Entre cuentas'}
+              {m === 'deposito' ? 'Depósito' : m === 'retiro' ? 'Retiro' : 'Entre cuentas'}
             </button>
           ))}
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
 
-          {/* Cuentas */}
-          <FieldGroup label="Desde" error={errors.fromAccountId?.message}>
-            <Select options={accountOptions} {...register('fromAccountId')} />
-          </FieldGroup>
+          {/* Cuenta de origen (retiro / entre cuentas) */}
+          {(mode === 'retiro' || mode === 'entre-cuentas') && (
+            <FieldGroup label="Desde" error={errors.fromAccountId?.message}>
+              <Select options={accountOptions} {...register('fromAccountId')} />
+            </FieldGroup>
+          )}
 
-          {mode === 'entre-cuentas' && (
-            <FieldGroup label="Hacia" error={errors.toAccountId?.message}>
-              <Select options={toAccountOptions} {...register('toAccountId')} />
+          {/* Cuenta de destino (depósito / entre cuentas) */}
+          {(mode === 'deposito' || mode === 'entre-cuentas') && (
+            <FieldGroup
+              label={mode === 'deposito' ? 'Cuenta' : 'Hacia'}
+              error={errors.toAccountId?.message}
+            >
+              <Select options={mode === 'entre-cuentas' ? toAccountOptions : accountOptions} {...register('toAccountId')} />
             </FieldGroup>
           )}
 
@@ -284,9 +304,11 @@ export function TransferDialog({
             >
               {isSubmitting
                 ? 'Guardando…'
-                : mode === 'retiro'
-                  ? 'Registrar retiro'
-                  : 'Transferir'}
+                : mode === 'deposito'
+                  ? 'Registrar depósito'
+                  : mode === 'retiro'
+                    ? 'Registrar retiro'
+                    : 'Transferir'}
             </Button>
           </div>
         </form>
