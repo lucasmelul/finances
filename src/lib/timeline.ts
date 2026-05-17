@@ -1,6 +1,8 @@
 /**
  * Capital Timeline — evolución mensual de:
- *  - **invested**: capital aportado neto (compras + transfers in − transfers out)
+ *  - **invested**: open cost basis FIFO al cierre de cada mes, consistente
+ *    con `computePortfolioMetrics.totalInvestedUSD` (incluye el efecto de
+ *    ventas — se reduce cuando se venden posiciones).
  *  - **value**: valuación del portfolio en ese momento
  *  - **pnl**: value − invested
  *
@@ -10,8 +12,7 @@
  * por cada mes, lo que es costoso y sale del scope.
  *
  * Estrategia de fallback (documentada en SPEC_V2 §11):
- *  - **invested** SÍ se reconstruye con precisión desde las txs (no requiere
- *    histórico de precios — usa `fxSnapshot` o el FX actual).
+ *  - **invested** usa FIFO open cost basis, consistente con computePortfolioMetrics.
  *  - **value** se proyecta desde el invested usando el precio ACTUAL como
  *    si las posiciones se hubieran sostenido. Eso significa que el valor
  *    pasado se ve "ondulado" si los precios cambiaron, pero el valor actual
@@ -27,6 +28,7 @@ import {
   type FxView,
   type PriceLookup,
 } from '@/lib/holdings';
+import { computeFIFO } from '@/lib/fifo';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────
 
@@ -102,41 +104,17 @@ export function computeCapitalTimeline({
     currentUSDByAsset.set(a.id, priceInUSD(p, fx));
   }
 
-  // 4. Reconstruir invested + qty por activo a fin de cada mes.
+  // 4. Reconstruir invested (FIFO open cost basis) + qty por activo a fin de cada mes.
   const points: CapitalTimelinePoint[] = [];
   for (const month of months) {
     const cutoff = new Date(month.getFullYear(), month.getMonth() + 1, 0, 23, 59, 59); // último día del mes
-    let invested = 0;
+
+    const txsUpToCutoff = sorted.filter(tx => new Date(tx.date) <= cutoff);
+    const { openLots } = computeFIFO(txsUpToCutoff, fx);
+    const invested = openLots.reduce((s, l) => s + l.remainingQty * l.costUSDPerUnit, 0);
     const qtyByAsset = new Map<string, number>();
-
-    for (const tx of sorted) {
-      const txDate = new Date(tx.date);
-      if (txDate > cutoff) break;
-      const usd = txAmountUSD(tx, fx);
-
-      if (tx.kind === 'buy' || tx.kind === 'transfer_in') {
-        if (usd != null) invested += usd;
-        qtyByAsset.set(
-          tx.assetId,
-          (qtyByAsset.get(tx.assetId) ?? 0) + tx.qty,
-        );
-      } else if (tx.kind === 'transfer_out') {
-        if (usd != null) invested -= usd;
-        qtyByAsset.set(
-          tx.assetId,
-          Math.max(0, (qtyByAsset.get(tx.assetId) ?? 0) - tx.qty),
-        );
-      } else if (tx.kind === 'sell' || tx.kind === 'fee') {
-        qtyByAsset.set(
-          tx.assetId,
-          Math.max(0, (qtyByAsset.get(tx.assetId) ?? 0) - tx.qty),
-        );
-      } else if (tx.kind === 'yield') {
-        qtyByAsset.set(
-          tx.assetId,
-          (qtyByAsset.get(tx.assetId) ?? 0) + tx.qty,
-        );
-      }
+    for (const lot of openLots) {
+      qtyByAsset.set(lot.assetId, (qtyByAsset.get(lot.assetId) ?? 0) + lot.remainingQty);
     }
 
     // Value = sum(qty × precio_actual). Es la limitación honesta — no es
@@ -158,17 +136,4 @@ export function computeCapitalTimeline({
   }
 
   return points;
-}
-
-function txAmountUSD(tx: Transaction, fallbackFx: FxView): number | null {
-  if (tx.kind === 'yield') return 0;
-  if (tx.priceCurrency === 'USD' || tx.priceCurrency === 'USDT') {
-    return tx.qty * tx.unitPrice;
-  }
-  if (tx.priceCurrency === 'ARS') {
-    const ccl = tx.fxSnapshot?.ccl ?? fallbackFx.ccl;
-    if (!ccl) return null;
-    return (tx.qty * tx.unitPrice) / ccl;
-  }
-  return null;
 }

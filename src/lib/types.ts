@@ -152,6 +152,12 @@ export interface StakingRule {
   assetId: string;
   accountId: string;
   portfolioId: string;
+  /**
+   * Si los intereses se cobran en un activo diferente al stakeado (ej. stakear
+   * USDC y cobrar en NEXO), indicar el assetId del activo de recompensa.
+   * Si está ausente, se asume que la recompensa es en el mismo activo.
+   */
+  rewardAssetId?: string;
   apyPct: number;
   payoutFrequency: 'daily' | 'weekly' | 'monthly';
   startDate: string;

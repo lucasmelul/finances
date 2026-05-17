@@ -38,6 +38,7 @@ const BUCKET_OPTIONS: ReadonlyArray<{ value: PortfolioBucket; label: string }> =
 
 const schema = z.object({
   assetId: z.string().min(1, 'Elegí un activo'),
+  rewardAssetId: z.string().optional(),
   accountId: z.string().min(1, 'Elegí una cuenta'),
   bucket: z.enum(['corto', 'medio', 'largo', 'trade']),
   apyPct: z.coerce.number().min(0.01, 'APY > 0').max(1000, 'APY < 1000'),
@@ -57,6 +58,7 @@ export function NuevaReglaStakingDialog({ open, onOpenChange }: NuevaReglaStakin
   const [submitError, setSubmitError] = useState<string | null>(null);
   const apyId = useId();
   const assetId = useId();
+  const rewardAssetIdInput = useId();
   const accountId = useId();
   const bucketId = useId();
   const freqId = useId();
@@ -66,6 +68,13 @@ export function NuevaReglaStakingDialog({ open, onOpenChange }: NuevaReglaStakin
       (assets ?? [])
         .filter((a) => a.type === 'crypto' || a.type === 'fondo' || a.type === 'bono')
         .map((a) => ({ value: a.id, label: `${a.ticker} — ${a.name}` })),
+    [assets],
+  );
+  const rewardAssetOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: '', label: '— Mismo activo —' },
+      ...(assets ?? []).map((a) => ({ value: a.id, label: `${a.ticker} — ${a.name}` })),
+    ],
     [assets],
   );
   const accountOptions = useMemo<SelectOption[]>(
@@ -85,6 +94,7 @@ export function NuevaReglaStakingDialog({ open, onOpenChange }: NuevaReglaStakin
     resolver: zodResolver(schema),
     defaultValues: {
       assetId: '',
+      rewardAssetId: '',
       accountId: '',
       bucket: 'corto',
       apyPct: 5,
@@ -97,6 +107,7 @@ export function NuevaReglaStakingDialog({ open, onOpenChange }: NuevaReglaStakin
     try {
       await createStakingRule({
         assetId: values.assetId,
+        rewardAssetId: values.rewardAssetId || undefined,
         accountId: values.accountId,
         bucket: values.bucket,
         apyPct: values.apyPct,
@@ -137,6 +148,17 @@ export function NuevaReglaStakingDialog({ open, onOpenChange }: NuevaReglaStakin
               {...register('assetId')}
             />
             {errors.assetId && <FieldError msg={errors.assetId.message} />}
+          </div>
+
+          <div>
+            <label htmlFor={rewardAssetIdInput} className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+              Recompensa en <span className="normal-case text-text-muted">(opcional — si es distinta al activo)</span>
+            </label>
+            <Select
+              id={rewardAssetIdInput}
+              options={rewardAssetOptions}
+              {...register('rewardAssetId')}
+            />
           </div>
 
           <div>

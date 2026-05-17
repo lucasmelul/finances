@@ -246,6 +246,9 @@ function RuleCard({
             <span className="text-sm font-semibold text-text-primary">
               {assetTicker}
             </span>
+            {perf.rewardAsset && perf.rewardAsset.id !== perf.rule.assetId && (
+              <span className="text-text-muted text-[11px]"> → recompensa en <strong>{perf.rewardAsset.ticker}</strong></span>
+            )}
             <span className="text-[11px] text-text-secondary">
               en {accountName}
             </span>

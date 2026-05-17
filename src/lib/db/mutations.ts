@@ -60,6 +60,9 @@ export interface CreateTransactionInput {
 export async function createTransaction(
   input: CreateTransactionInput,
 ): Promise<Transaction> {
+  if (input.qty <= 0) throw new Error('La cantidad debe ser mayor a 0.');
+  if (input.unitPrice < 0) throw new Error('El precio no puede ser negativo.');
+
   const now = new Date().toISOString();
   const portfolioId =
     input.portfolioId ??
@@ -392,6 +395,7 @@ export interface CreateStakingRuleInput {
   accountId: string;
   bucket?: PortfolioBucket;
   portfolioId?: string;
+  rewardAssetId?: string;
   apyPct: number;
   payoutFrequency: 'daily' | 'weekly' | 'monthly';
   startDate?: string;
@@ -436,6 +440,7 @@ export async function createStakingRule(
     assetId: input.assetId,
     accountId: input.accountId,
     portfolioId,
+    rewardAssetId: input.rewardAssetId,
     apyPct: input.apyPct,
     payoutFrequency: input.payoutFrequency,
     startDate: input.startDate ?? now,

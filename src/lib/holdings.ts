@@ -16,29 +16,32 @@ import { computeFIFO } from '@/lib/fifo';
 // ─── DCA (Dollar-Cost Average) ─────────────────────────────────────────────
 
 /**
- * Resumen del DCA de un activo, agregado sobre TODAS las compras del usuario
- * en cualquier cuenta/cartera.
+ * Resumen del DCA de un activo, derivado de los lots REMANENTES (FIFO).
  *
  * Cuando todas las compras fueron en la misma moneda nativa, devolvemos
  * también el DCA en esa moneda (más legible para el caso típico CEDEAR=ARS).
  */
 export interface DCAResult {
-  /** Cantidad total comprada (sin restar ventas — el DCA es del lado de compra). */
+  /** Cantidad total en los lots remanentes (posición actual). */
   qtyBought: number;
-  /** Costo total invertido en USD, sumando snapshot FX de cada tx. */
+  /** Costo total de los lots remanentes en USD (open cost basis). */
   totalCostUSD: number;
-  /** DCA = totalCostUSD / qtyBought, en USD. 0 si no hay compras. */
+  /** DCA = totalCostUSD / qtyBought, en USD. 0 si no hay posición. */
   dcaUSD: number;
-  /** DCA en moneda nativa, si todas las compras fueron en la misma moneda. */
+  /** DCA en moneda nativa, si todos los lots remanentes de tipo buy/transfer_in comparten moneda. */
   dcaNative?: { value: number; currency: Currency };
-  /** Cantidad de transacciones de compra consideradas. */
+  /** Cantidad de transacciones buy+transfer_in+yield históricas (solo informativo). */
   txCount: number;
 }
 
 /**
- * Calcula el DCA de UN asset desde su lista de transactions. Solo considera
- * `buy` y `transfer_in` — las ventas no cambian el DCA (consistente con FIFO),
- * y los yields entran a costo 0 (los reflejamos como dilución del DCA).
+ * Calcula el DCA de UN asset usando los lots REMANENTES de `computeFIFO`.
+ * Después de una venta parcial, refleja el costo promedio de lo que el usuario
+ * AÚN tiene, no de todo lo que compró históricamente.
+ *
+ * - Los lots de yield tienen costUSDPerUnit = 0, así que no suman al costo
+ *   pero sí diluyen el DCA (qty sin costo — intencional).
+ * - `txCount` cuenta buy+transfer_in+yield históricos (para display).
  *
  * Si llamás con todas las txs del usuario, filtrá por `assetId` antes —
  * no quiero acoplar este helper a la búsqueda.
@@ -47,41 +50,43 @@ export function computeDCA(
   txsForAsset: Transaction[],
   fx: FxView,
 ): DCAResult {
+  const { openLots } = computeFIFO(txsForAsset, fx);
+
+  // Mapa txId → Transaction para lookup del precio nativo original.
+  const txById = new Map<string, Transaction>();
+  for (const tx of txsForAsset) txById.set(tx.id, tx);
+
   let qtyBought = 0;
   let totalCostUSD = 0;
-  let txCount = 0;
-  // Tracking de moneda nativa: si todas las compras fueron en la misma,
-  // exponemos el DCA en esa moneda también.
   let nativeCurrency: Currency | 'mixed' | undefined;
   let nativeCostSum = 0;
   let nativeQtySum = 0;
 
-  for (const tx of txsForAsset) {
-    if (tx.kind === 'yield') {
-      // Yield suma qty pero a costo 0 — diluye el DCA hacia abajo.
-      qtyBought += tx.qty;
-      txCount += 1;
-      continue;
-    }
-    if (tx.kind !== 'buy' && tx.kind !== 'transfer_in') continue;
+  for (const lot of openLots) {
+    qtyBought += lot.remainingQty;
+    totalCostUSD += lot.remainingQty * lot.costUSDPerUnit;
 
-    const costUSD = txCostUSDFromTx(tx, fx);
-    totalCostUSD += costUSD * tx.qty;
-    qtyBought += tx.qty;
-    txCount += 1;
-
-    // Tracking de moneda nativa
-    if (nativeCurrency === undefined) {
-      nativeCurrency = tx.priceCurrency;
-      nativeCostSum = tx.unitPrice * tx.qty;
-      nativeQtySum = tx.qty;
-    } else if (nativeCurrency === tx.priceCurrency) {
-      nativeCostSum += tx.unitPrice * tx.qty;
-      nativeQtySum += tx.qty;
-    } else {
-      nativeCurrency = 'mixed';
+    // DCA nativo: solo los lots de buy/transfer_in tienen precio nativo
+    // significativo; los de yield tienen costo 0 y no hay moneda nativa útil.
+    const origTx = txById.get(lot.txId);
+    if (origTx && (origTx.kind === 'buy' || origTx.kind === 'transfer_in')) {
+      if (nativeCurrency === undefined) {
+        nativeCurrency = origTx.priceCurrency;
+        nativeCostSum = origTx.unitPrice * lot.remainingQty;
+        nativeQtySum = lot.remainingQty;
+      } else if (nativeCurrency === origTx.priceCurrency) {
+        nativeCostSum += origTx.unitPrice * lot.remainingQty;
+        nativeQtySum += lot.remainingQty;
+      } else {
+        nativeCurrency = 'mixed';
+      }
     }
   }
+
+  // txCount: solo informativo — cuántas txs de compra/yield existieron históricamente.
+  const txCount = txsForAsset.filter(
+    (tx) => tx.kind === 'buy' || tx.kind === 'transfer_in' || tx.kind === 'yield',
+  ).length;
 
   const dcaUSD = qtyBought > 0 ? totalCostUSD / qtyBought : 0;
   const dcaNative =
@@ -90,18 +95,6 @@ export function computeDCA(
       : undefined;
 
   return { qtyBought, totalCostUSD, dcaUSD, dcaNative, txCount };
-}
-
-/** Helper interno — convierte el costo de UNA tx a USD usando snapshot FX. */
-function txCostUSDFromTx(tx: Transaction, fallbackFx: FxView): number {
-  if (tx.priceCurrency === 'USD' || tx.priceCurrency === 'USDT') {
-    return tx.unitPrice;
-  }
-  if (tx.priceCurrency === 'ARS') {
-    const ccl = tx.fxSnapshot?.ccl ?? fallbackFx.ccl;
-    return tx.unitPrice / ccl;
-  }
-  return 0;
 }
 
 // ─── Aggregates ────────────────────────────────────────────────────────────

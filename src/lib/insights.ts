@@ -111,10 +111,13 @@ const ruleCryptoExposure: Rule = ({ risk }) => {
 };
 
 /** Capital ocioso. Stables sin staking + cash. */
-const ruleIdleCapital: Rule = ({ liquidity, portfolio }) => {
+const ruleIdleCapital: Rule = ({ liquidity, portfolio, risk }) => {
   if (!liquidity || !portfolio) return null;
   if (liquidity.idlePct < 15) return null;
   if (portfolio.totalValueUSD < 100) return null; // ignorar portfolios mini
+  // Si el idle es principalmente stablecoins, ruleIdleStables es más específica
+  // y da mejor acción. Evitamos mostrar dos cards solapadas.
+  if (risk && risk.stableExposurePct >= 15) return null;
   const top = liquidity.breakdown[0];
   return {
     id: 'efficiency-idle',

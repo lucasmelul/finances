@@ -33,6 +33,8 @@ import {
 export interface RulePerformance {
   rule: StakingRule;
   asset?: Asset;
+  /** Asset en el que se reciben las recompensas (puede diferir del asset stakeado). */
+  rewardAsset?: Asset;
   /** Yield esperado en moneda nativa del asset. */
   expectedQty: number;
   /** Yield real cobrado (qty acumulada de tx kind='yield'). */
@@ -87,18 +89,21 @@ function expectedYieldQty(
 
 /**
  * Suma actual yields para una regla en el rango `[from, to]`.
+ * Cuando la regla tiene `rewardAssetId`, filtra por ese asset en vez del
+ * asset stakeado — las tx de yield llegan en el token de recompensa.
  */
 function actualYieldQty(
   rule: StakingRule,
   txs: Transaction[],
   from: Date,
   to: Date,
+  rewardAssetId?: string,
 ): number {
   return txs
     .filter(
       (t) =>
         t.kind === 'yield' &&
-        t.assetId === rule.assetId &&
+        t.assetId === (rewardAssetId ?? rule.assetId) &&
         t.accountId === rule.accountId &&
         t.portfolioId === rule.portfolioId,
     )
@@ -153,6 +158,9 @@ export function computeStakingSummary({
 }): StakingSummary {
   const perfs: RulePerformance[] = rules.map((rule) => {
     const asset = assets.find((a) => a.id === rule.assetId);
+    const rewardAsset = rule.rewardAssetId
+      ? assets.find((a) => a.id === rule.rewardAssetId)
+      : undefined;
     const lastAccrualOrStart = new Date(rule.lastAccrualDate ?? rule.startDate);
     const endDate = rule.endDate ? new Date(rule.endDate) : now;
     const effectiveTo = endDate < now ? endDate : now;
@@ -165,10 +173,11 @@ export function computeStakingSummary({
     const expectedQty = rule.active
       ? expectedYieldQty(rule, qtyHeld, lastAccrualOrStart, effectiveTo)
       : 0;
-    const actualQty = actualYieldQty(rule, txs, lastAccrualOrStart, effectiveTo);
+    const actualQty = actualYieldQty(rule, txs, lastAccrualOrStart, effectiveTo, rule.rewardAssetId);
 
-    const usdPrice = asset && prices.get(asset.id)
-      ? priceInUSD(prices.get(asset.id)!, fx)
+    const priceAssetId = rewardAsset?.id ?? asset?.id;
+    const usdPrice = priceAssetId && prices.get(priceAssetId)
+      ? priceInUSD(prices.get(priceAssetId)!, fx)
       : 0;
     const expectedUSD = expectedQty * usdPrice;
     const actualUSD = actualQty * usdPrice;
@@ -178,6 +187,7 @@ export function computeStakingSummary({
     return {
       rule,
       asset,
+      rewardAsset,
       expectedQty,
       actualQty,
       performancePct,

@@ -90,6 +90,19 @@ interface ParsedTransfer {
   unitPriceUSD: number;
 }
 
+// ─── Helpers de display ────────────────────────────────────────────────────
+
+const TX_KIND_LABEL: Record<string, string> = {
+  buy: 'Compra',
+  sell: 'Venta',
+  yield: 'Yield',
+  transfer_in: 'Ingreso',
+  transfer_out: 'Retiro',
+  fee: 'Comisión',
+  fx: 'FX',
+  adjustment: 'Ajuste',
+};
+
 // ─── Stub de parser local ──────────────────────────────────────────────────
 
 /**
@@ -949,7 +962,7 @@ function ParsedReceipt({
     >
       <div className="mb-2 flex items-center justify-between">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-          Recibo · {parsed.kind === 'buy' ? 'Compra' : parsed.kind === 'sell' ? 'Venta' : 'Yield'}
+          Recibo · {TX_KIND_LABEL[parsed.kind] ?? parsed.kind}
           {status === 'confirmed' && (
             <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-positive/[0.14] px-1.5 py-0.5 text-positive">
               <Icon name="check" size={10} /> guardada
