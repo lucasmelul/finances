@@ -323,12 +323,13 @@ function Hero({
         )}
       </div>
 
-      {/* Triplet: Invertiste / Hoy vale / Yield. Layout en grid responsive. */}
+      {/* Triplet: Invertiste / Hoy vale / Ganancia. */}
       <div className="grid grid-cols-3 gap-2">
         <HeroStat
           label="Invertiste"
           value={hidden ? '••••' : fmtMoney(investedDisplay, displayCurrency)}
           tone="neutral"
+          hint="Costo base abierto"
         />
         <HeroStat
           label="Hoy vale"
@@ -336,23 +337,32 @@ function Hero({
           tone="neutral"
         />
         <HeroStat
-          label={portfolio && portfolio.totalYieldUSD > 0 ? 'Yield' : 'Ganancia'}
+          label="Ganancia"
           value={
-            hidden
+            hidden || !portfolio
               ? '••••'
-              : portfolio && portfolio.totalYieldUSD > 0
-                ? fmtMoney(yieldDisplay, displayCurrency)
-                : `${pnlDisplay >= 0 ? '+' : ''}${fmtMoney(pnlDisplay, displayCurrency)}`
+              : `${pnlDisplay >= 0 ? '+' : ''}${fmtMoney(pnlDisplay, displayCurrency)}`
           }
-          tone={
-            portfolio && portfolio.totalYieldUSD > 0
-              ? 'accent'
-              : positive
-                ? 'positive'
-                : 'negative'
-          }
+          tone={positive ? 'positive' : 'negative'}
         />
       </div>
+
+      {/* Desglose realizado / no realizado — visible solo cuando hay ventas */}
+      {portfolio && portfolio.realizedPnLUSD !== 0 && !hidden && (
+        <div className="mt-2 flex items-center justify-between rounded-xl border border-border-subtle bg-bg-surface px-3 py-2 text-[11px]">
+          <span className="text-text-muted">No realizado</span>
+          <span className={cn('font-semibold tabular-nums', portfolio.unrealizedPnLUSD >= 0 ? 'text-positive' : 'text-negative')}>
+            {portfolio.unrealizedPnLUSD >= 0 ? '+' : ''}
+            {fmtMoney(metricToDisplay(portfolio.unrealizedPnLUSD, displayCurrency, fx), displayCurrency)}
+          </span>
+          <span className="text-border-subtle">·</span>
+          <span className="text-text-muted">Realizado</span>
+          <span className={cn('font-semibold tabular-nums', portfolio.realizedPnLUSD >= 0 ? 'text-positive' : 'text-negative')}>
+            {portfolio.realizedPnLUSD >= 0 ? '+' : ''}
+            {fmtMoney(metricToDisplay(portfolio.realizedPnLUSD, displayCurrency, fx), displayCurrency)}
+          </span>
+        </div>
+      )}
     </header>
   );
 }
@@ -361,10 +371,12 @@ function HeroStat({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string;
   value: string;
   tone: 'neutral' | 'positive' | 'negative' | 'accent';
+  hint?: string;
 }) {
   const toneClass = {
     neutral: 'text-text-primary',
@@ -373,7 +385,7 @@ function HeroStat({
     accent: 'text-accent',
   }[tone];
   return (
-    <div className="rounded-xl border border-border-subtle bg-bg-surface p-2.5">
+    <div className="rounded-xl border border-border-subtle bg-bg-surface p-2.5" title={hint}>
       <div className="text-[10px] font-medium uppercase tracking-wider text-text-secondary">
         {label}
       </div>

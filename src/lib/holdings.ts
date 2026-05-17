@@ -2,16 +2,16 @@
  * Cálculo de holdings (posición agregada) desde transactions.
  *
  * SPEC §3.4: la posición de cada `(asset, account, portfolio)` se deriva
- * sumando qty de las tx aplicables — no se persiste como tabla. Acá vive el
- * sumador.
+ * desde las transacciones usando FIFO — no se persiste como tabla.
  *
- * Limitación MVP: usa promedio simple (cost-weighted average) en vez de FIFO
- * estricto. Ventajas: O(N) sin lotes, suficiente para mostrar PnL en UI.
- * Cuando construyamos el motor FIFO real (Phase 2), lo cambiamos acá sin
- * tocar las pantallas.
+ * Phase 2: reemplazamos el promedio corriente por el motor FIFO de `fifo.ts`.
+ * El DCA (avgCostUSD) ahora refleja el costo promedio de los lots REMANENTES,
+ * no de todos los lots históricos. Esto da el costo base correcto cuando el
+ * usuario vendió parte de su posición.
  */
 
 import type { Asset, Currency, Transaction } from '@/lib/types';
+import { computeFIFO } from '@/lib/fifo';
 
 // ─── DCA (Dollar-Cost Average) ─────────────────────────────────────────────
 
@@ -125,92 +125,46 @@ export interface FxView {
   oficial?: number;
 }
 
-/**
- * Convierte el `unitPrice` de una tx a USD usando el snapshot embebido en la
- * propia tx (preferido) o el FX actual como fallback. Esto preserva el costo
- * histórico aunque el CCL haya cambiado.
- */
-function txCostUSD(tx: Transaction, fallbackFx: FxView): number {
-  if (tx.priceCurrency === 'USD' || tx.priceCurrency === 'USDT') {
-    return tx.unitPrice;
-  }
-  if (tx.priceCurrency === 'ARS') {
-    const ccl = tx.fxSnapshot?.ccl ?? fallbackFx.ccl;
-    return tx.unitPrice / ccl;
-  }
-  // EUR / BTC: por ahora no soportado en costo histórico — devolver 0
-  // hace que el holding aparezca con avg=0 (visible como "datos faltantes").
-  return 0;
-}
 
 /**
- * Reduce una lista de transactions a holdings agregados por scope.
+ * Reduce una lista de transactions a holdings agregados por scope usando FIFO.
  *
- * Reglas:
- *  - `buy` / `transfer_in` / `yield` → suman qty
- *  - `sell` / `transfer_out` / `fee` → restan qty
- *  - `fx` / `adjustment` → no afectan qty (manejarlos requeriría modelar
- *    FX pairs, pendiente para Phase 2)
- *  - El costo promedio se recalcula solo en buys (las otras tx no aportan
- *    base — los yields entran a costo 0, lo que infla el % ROI a propósito
- *    para reflejar "ganancia limpia").
+ * Cada holding refleja el costo base de los LOTS REMANENTES (los que no
+ * fueron consumidos por ventas o transfers_out). Esto significa que:
+ *  - `avgCostUSD` es el DCA de lo que realmente tenés hoy (no de todo lo
+ *    que compraste históricamente).
+ *  - `totalCostUSD` = open cost basis = cuánto pagaste por la posición actual.
+ *
+ * Yield entra a costo 0: su lot no contribuye al costo base pero sí a la qty,
+ * lo que dilata el DCA hacia abajo (refleja la "ganancia limpia" del staking).
  */
 export function computeHoldings(
   transactions: Transaction[],
   fx: FxView,
 ): HoldingAggregate[] {
+  const { openLots } = computeFIFO(transactions, fx);
+
+  // Agregar lots por scope → HoldingAggregate.
   const map = new Map<string, HoldingAggregate>();
-
-  for (const tx of transactions) {
-    const key = `${tx.assetId}|${tx.accountId}|${tx.portfolioId}`;
-    let h = map.get(key);
+  for (const lot of openLots) {
+    const key = `${lot.assetId}|${lot.accountId}|${lot.portfolioId}`;
+    const h = map.get(key);
     if (!h) {
-      h = {
-        assetId: tx.assetId,
-        accountId: tx.accountId,
-        portfolioId: tx.portfolioId,
-        qty: 0,
-        avgCostUSD: 0,
-        totalCostUSD: 0,
-      };
-      map.set(key, h);
-    }
-
-    switch (tx.kind) {
-      case 'buy':
-      case 'transfer_in': {
-        const costUSD = txCostUSD(tx, fx);
-        const newCost = h.totalCostUSD + costUSD * tx.qty;
-        const newQty = h.qty + tx.qty;
-        h.qty = newQty;
-        h.totalCostUSD = newCost;
-        h.avgCostUSD = newQty > 0 ? newCost / newQty : 0;
-        break;
-      }
-      case 'yield': {
-        // Los yields suman qty pero no costo (entran "gratis" al costo base).
-        h.qty += tx.qty;
-        h.avgCostUSD = h.qty > 0 ? h.totalCostUSD / h.qty : 0;
-        break;
-      }
-      case 'sell':
-      case 'transfer_out':
-      case 'fee': {
-        // Promedio se preserva en venta (FIFO real ajustaría aquí). qty baja.
-        h.qty = Math.max(0, h.qty - tx.qty);
-        // Si quedamos en 0, el avg ya no aplica — lo dejamos como histórico.
-        if (h.qty === 0) h.totalCostUSD = 0;
-        else h.totalCostUSD = h.avgCostUSD * h.qty;
-        break;
-      }
-      case 'fx':
-      case 'adjustment':
-        // No-op por ahora.
-        break;
+      map.set(key, {
+        assetId: lot.assetId,
+        accountId: lot.accountId,
+        portfolioId: lot.portfolioId,
+        qty: lot.remainingQty,
+        totalCostUSD: lot.remainingQty * lot.costUSDPerUnit,
+        avgCostUSD: lot.costUSDPerUnit,
+      });
+    } else {
+      h.qty += lot.remainingQty;
+      h.totalCostUSD += lot.remainingQty * lot.costUSDPerUnit;
+      h.avgCostUSD = h.qty > 0 ? h.totalCostUSD / h.qty : 0;
     }
   }
 
-  // Filtrar holdings con qty 0 (cerrados) — no los queremos en listas.
   return [...map.values()].filter((h) => h.qty > 0);
 }
 

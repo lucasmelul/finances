@@ -29,6 +29,7 @@ import {
   type HoldingAggregate,
   type PriceLookup,
 } from '@/lib/holdings';
+import { computeFIFO } from '@/lib/fifo';
 
 // ─── Portfolio Metrics ─────────────────────────────────────────────────────
 
@@ -37,33 +38,48 @@ import {
  * comparable; el caller puede convertir a la moneda de display si quiere.
  */
 export interface PortfolioMetrics {
-  /** Capital neto aportado: compras + transfers in - transfers out. NO incluye yields. */
+  /**
+   * Open cost basis: suma del costo base de los lots REMANENTES (lo que pagaste
+   * por lo que todavía tenés). Baja cuando vendés (a diferencia del enfoque
+   * "total dinero depositado"). Con FIFO, es el costo correcto de la posición actual.
+   */
   totalInvestedUSD: number;
-  /** Valor de mercado actual de los holdings, ya convertido a USD. */
+  /** Valor de mercado actual de los holdings, convertido a USD. */
   totalValueUSD: number;
-  /** PnL = valor actual - capital invertido. Incluye yields como ganancia "implícita"
-   *  porque elevan `totalValueUSD` sin elevar el `totalInvestedUSD`. */
+  /** PnL total = unrealized + realized. La métrica que importa para saber cómo
+   *  le fue al portfolio en toda su historia. */
   totalPnLUSD: number;
-  /** Suma de tx kind='yield' valuadas a precio actual. Métrica de información,
-   *  no se resta del PnL — es PnL "limpio" del staking/dividendos. */
+  /**
+   * Ganancia/pérdida NO realizada: lo que "está en papel" en las posiciones
+   * abiertas. = totalValueUSD − totalInvestedUSD.
+   */
+  unrealizedPnLUSD: number;
+  /**
+   * Ganancia/pérdida YA REALIZADA: suma de (proceeds − costBasis) de todas
+   * las ventas ejecutadas. Acumulativo desde el inicio del portfolio.
+   */
+  realizedPnLUSD: number;
+  /** Suma de tx kind='yield' valuadas a precio actual.
+   *  Informativo — el yield ya está implícito en totalValueUSD / unrealizedPnL. */
   totalYieldUSD: number;
-  /** PnL / invested. 0 cuando no hay capital invertido (evita NaN). */
+  /**
+   * totalPnLUSD / totalInvestedUSD × 100. 0 cuando no hay posición abierta.
+   * Mide el retorno sobre el capital actualmente desplegado.
+   */
   performancePct: number;
-  /** Si false, hay tx que no se pudieron valuar (sin fxSnapshot ni FX actual disponible).
-   *  Útil para mostrar un disclaimer de "estimación parcial". */
+  /** Si false, alguna tx no se pudo valuar en USD (sin snapshot ni FX). */
   hasCompleteData: boolean;
 }
 
 /**
- * Calcula PortfolioMetrics desde txs + valuación actual.
+ * Calcula PortfolioMetrics desde txs + valuación actual usando FIFO.
  *
- * Estrategia para el costo en USD por tx (orden de prioridad):
- *  1. Si la tx ya está en USD/USDT, usar `unitPrice` directo.
- *  2. Si está en ARS y tiene `fxSnapshot.ccl`, usar el snapshot (preserva
- *     historia — clave para que el costo no "respire" cuando el CCL cambie).
- *  3. Si está en ARS sin snapshot, usar el FX actual como fallback. Marcar
- *     `hasCompleteData = false` para que la UI lo señalice.
- *  4. Otras monedas (EUR/BTC) → 0 + flag false. No queremos inventar datos.
+ * Con FIFO el cálculo es más simple y correcto:
+ *  - `totalInvestedUSD` = suma del costo base de los lots abiertos.
+ *    Baja cuando vendés (el costo de los lots consumidos sale del invested).
+ *  - `realizedPnLUSD` = ganancias/pérdidas ya cristalizadas (acumuladas).
+ *  - `unrealizedPnLUSD` = ganancia en papel en las posiciones actuales.
+ *  - `totalPnLUSD` = unrealized + realized (verdadero PnL histórico).
  */
 export function computePortfolioMetrics(
   txs: Transaction[],
@@ -71,56 +87,48 @@ export function computePortfolioMetrics(
   prices: Map<string, PriceLookup>,
   fx: FxView,
 ): PortfolioMetrics {
-  let totalInvestedUSD = 0;
-  let totalYieldUSD = 0;
-  let hasCompleteData = true;
-
-  // Pricing snapshot por asset para no buscar dentro del loop de yield.
+  // Precio actual por asset (O(1) lookups dentro de los loops).
   const assetCurrentUSD = new Map<string, number>();
   for (const [assetId, p] of prices) {
     assetCurrentUSD.set(assetId, priceInUSD(p, fx));
   }
 
-  for (const tx of txs) {
-    const usd = txAmountUSD(tx, fx);
-    if (usd === null) {
-      hasCompleteData = false;
-      continue;
-    }
+  // ── FIFO ──────────────────────────────────────────────────────────────────
+  const { openLots, realized } = computeFIFO(txs, fx);
 
-    if (tx.kind === 'buy' || tx.kind === 'transfer_in') {
-      totalInvestedUSD += usd;
-    } else if (tx.kind === 'transfer_out') {
-      // Una transfer-out reduce el capital "afuera" (movimos plata fuera del
-      // sistema). Si la modelamos restando del invested, da el "capital neto".
-      totalInvestedUSD -= usd;
-    } else if (tx.kind === 'yield') {
-      // Yield se valúa a PRECIO ACTUAL, no al unitPrice de la tx (que suele
-      // ser 0 en yields de staking). Es lo que la posición vale HOY gracias
-      // al rendimiento — la métrica que el usuario quiere ver.
-      const currentPriceUSD = assetCurrentUSD.get(tx.assetId);
-      if (currentPriceUSD === undefined) {
-        hasCompleteData = false;
-        continue;
-      }
-      totalYieldUSD += tx.qty * currentPriceUSD;
-    }
-    // sell, fee, fx, adjustment no afectan invested ni yield
-    // (sell solo libera el capital invertido — sigue siendo `invested`).
+  // totalInvested = open cost basis (sum of remaining lot costs).
+  let totalInvestedUSD = 0;
+  for (const lot of openLots) {
+    totalInvestedUSD += lot.remainingQty * lot.costUSDPerUnit;
   }
 
-  // Valor actual del portfolio: sum(qty × current_price_USD).
+  // realizedPnL = acumulado de todas las ventas.
+  const realizedPnLUSD = realized.reduce((s, r) => s + r.realizedPnLUSD, 0);
+
+  // ── Yield (informativo) ───────────────────────────────────────────────────
+  // Yield se valúa a PRECIO ACTUAL (no al unitPrice=0 de la tx de staking).
+  // Es lo que las unidades recibidas valen HOY — la métrica que el usuario quiere.
+  let totalYieldUSD = 0;
+  let hasCompleteData = true;
+  for (const tx of txs) {
+    if (tx.kind !== 'yield') continue;
+    const px = assetCurrentUSD.get(tx.assetId);
+    if (px === undefined) { hasCompleteData = false; continue; }
+    totalYieldUSD += tx.qty * px;
+  }
+
+  // ── Valor actual ──────────────────────────────────────────────────────────
+  // sum(qty × current_price_USD) sobre holdings (que ya son los lots abiertos).
   let totalValueUSD = 0;
   for (const h of holdings) {
     const px = assetCurrentUSD.get(h.assetId);
-    if (px === undefined) {
-      hasCompleteData = false;
-      continue;
-    }
+    if (px === undefined) { hasCompleteData = false; continue; }
     totalValueUSD += h.qty * px;
   }
 
-  const totalPnLUSD = totalValueUSD - totalInvestedUSD;
+  // ── PnL ───────────────────────────────────────────────────────────────────
+  const unrealizedPnLUSD = totalValueUSD - totalInvestedUSD;
+  const totalPnLUSD = unrealizedPnLUSD + realizedPnLUSD;
   const performancePct =
     totalInvestedUSD > 0 ? (totalPnLUSD / totalInvestedUSD) * 100 : 0;
 
@@ -128,33 +136,12 @@ export function computePortfolioMetrics(
     totalInvestedUSD,
     totalValueUSD,
     totalPnLUSD,
+    unrealizedPnLUSD,
+    realizedPnLUSD,
     totalYieldUSD,
     performancePct,
     hasCompleteData,
   };
-}
-
-/**
- * Convierte el monto absoluto de UNA tx a USD (qty × unitPrice). Usa el
- * `fxSnapshot` de la tx si existe (preserva el FX histórico), o el FX
- * actual como fallback. Devuelve `null` si no se puede valuar.
- */
-function txAmountUSD(tx: Transaction, fallbackFx: FxView): number | null {
-  if (tx.kind === 'yield') {
-    // Yield se valúa con `unitPrice = 0` y la qty solo añade unidades —
-    // su monto en USD lo calcula el caller con el precio actual.
-    return 0;
-  }
-  if (tx.priceCurrency === 'USD' || tx.priceCurrency === 'USDT') {
-    return tx.qty * tx.unitPrice;
-  }
-  if (tx.priceCurrency === 'ARS') {
-    const ccl = tx.fxSnapshot?.ccl ?? fallbackFx.ccl;
-    if (!ccl) return null;
-    return (tx.qty * tx.unitPrice) / ccl;
-  }
-  // EUR/BTC sin tasa de conversión confiable → no inventamos.
-  return null;
 }
 
 // ─── Liquidity Metrics ─────────────────────────────────────────────────────
