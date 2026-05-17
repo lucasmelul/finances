@@ -14,10 +14,12 @@
  */
 
 import { usePollFx, usePollCryptoPrices, usePollUnderlyingPrices } from '@/lib/api/sync';
+import { useYieldAccrual } from '@/lib/db/derived';
 
 export function Pollers() {
   usePollFx();
   usePollCryptoPrices();
   usePollUnderlyingPrices();
+  useYieldAccrual();
   return null;
 }

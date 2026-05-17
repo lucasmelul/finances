@@ -3,7 +3,7 @@
  * para distinguir lecturas crudas (1 tabla) de lecturas computadas (joins).
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { Currency } from '@/lib/types';
 import {
@@ -30,6 +30,7 @@ import {
   type TimelineRange,
 } from '@/lib/timeline';
 import { computeStakingSummary, type StakingSummary } from '@/lib/staking';
+import { runYieldAccrual } from '@/lib/accrual';
 import { computeSRFromPrices, type SRLevels } from '@/lib/sr';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { fetchAndCacheHistory } from './historyCache';
@@ -441,4 +442,35 @@ export function useStakingSummary(): StakingSummary | undefined {
     if (!rules || !txs || !assets || !prices) return undefined;
     return computeStakingSummary({ rules, txs, assets, prices, fx });
   }, [rules, txs, assets, prices, fx]);
+}
+
+/**
+ * Motor de accrual automático de staking. Se ejecuta UNA VEZ por sesión
+ * (mount del componente) gracias al ref.
+ *
+ * Por qué una vez por sesión y no por día:
+ *  - `runYieldAccrual` ya usa `lastAccrualDate` como backstop idempotente.
+ *  - Ejecutarlo varias veces en el mismo día no crea txs duplicadas.
+ *  - Pero dispararlo solo al montar (sesión nueva = intención de uso) es
+ *    suficiente y evita race conditions con actualizaciones en background.
+ *
+ * Llamar en `<Pollers/>` para que corra automáticamente al arrancar.
+ */
+export function useYieldAccrual(): void {
+  const rules = useStakingRules();
+  const txs = useTransactions();
+  const hasRun = useRef(false);
+
+  useEffect(() => {
+    // Esperar a que ambas tablas hayan cargado y que no hayamos corrido ya.
+    if (hasRun.current || !rules || !txs) return;
+
+    const activeRules = rules.filter((r) => r.active);
+    if (activeRules.length === 0) return;
+
+    hasRun.current = true;
+    runYieldAccrual(activeRules, txs).catch((err) => {
+      console.error('[useYieldAccrual] Error en accrual automático:', err);
+    });
+  }, [rules, txs]);
 }

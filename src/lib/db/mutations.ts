@@ -13,6 +13,7 @@
 
 import { db } from './schema';
 import { newId } from '@/lib/utils';
+import { loadLatestFxSnapshot } from './fxSnapshot';
 import type {
   Account,
   AccountKind,
@@ -26,7 +27,6 @@ import type {
   TxKind,
 } from '@/lib/types';
 import { portfolioIdForBucket } from '@/data/portfolios';
-import { SEED_FX } from '@/data/seed';
 
 // ─── Transactions ──────────────────────────────────────────────────────────
 
@@ -177,29 +177,6 @@ export async function createTransfer(input: CreateTransferInput): Promise<Transa
   });
 
   return txs;
-}
-
-/**
- * Lee el FX más fresco para embeber como `fxSnapshot` en la tx.
- * Si no hay nada en cache (primer arranque sin polling), usa el seed.
- */
-async function loadLatestFxSnapshot(): Promise<Transaction['fxSnapshot']> {
-  const rows = await db.fxRateCache.toArray();
-  if (rows.length === 0) {
-    return {
-      ccl: SEED_FX.ccl,
-      mep: SEED_FX.mep,
-      blue: SEED_FX.blue,
-      oficial: SEED_FX.oficial,
-    };
-  }
-  const byKind = new Map(rows.map((r) => [r.kind, r.sell]));
-  return {
-    ccl: byKind.get('ccl') ?? SEED_FX.ccl,
-    mep: byKind.get('mep') ?? SEED_FX.mep,
-    blue: byKind.get('blue') ?? SEED_FX.blue,
-    oficial: byKind.get('oficial') ?? SEED_FX.oficial,
-  };
 }
 
 // ─── Accounts ──────────────────────────────────────────────────────────────
