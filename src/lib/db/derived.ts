@@ -31,6 +31,7 @@ import {
 } from '@/lib/timeline';
 import { computeStakingSummary, type StakingSummary } from '@/lib/staking';
 import { runYieldAccrual } from '@/lib/accrual';
+import { toast } from 'sonner';
 import { computeSRFromPrices, type SRLevels } from '@/lib/sr';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { fetchAndCacheHistory } from './historyCache';
@@ -469,8 +470,20 @@ export function useYieldAccrual(): void {
     if (activeRules.length === 0) return;
 
     hasRun.current = true;
-    runYieldAccrual(activeRules, txs).catch((err) => {
-      console.error('[useYieldAccrual] Error en accrual automático:', err);
-    });
+    runYieldAccrual(activeRules, txs)
+      .then((result) => {
+        if (result.txsCreated === 0) return;
+        const label =
+          result.txsCreated === 1
+            ? '1 acreditación de staking registrada'
+            : `${result.txsCreated} acreditaciones de staking registradas`;
+        toast.success(label, {
+          description: 'El yield del período se agregó a tus operaciones.',
+          duration: 5000,
+        });
+      })
+      .catch((err) => {
+        console.error('[useYieldAccrual] Error en accrual automático:', err);
+      });
   }, [rules, txs]);
 }

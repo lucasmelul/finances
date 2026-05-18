@@ -7,6 +7,7 @@
  */
 
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { AppShell } from '@/components/shell/AppShell';
 import { Pollers } from '@/components/Pollers';
 import {
@@ -27,6 +28,8 @@ import {
 export default function App() {
   return (
     <BrowserRouter>
+      {/* Toaster global — sonner lo posiciona en el viewport, fijo. */}
+      <Toaster position="bottom-center" richColors />
       {/* Pollers vive fuera de las rutas: corre siempre, no se reinicia al
           navegar. Renderiza null. */}
       <Pollers />

@@ -70,12 +70,32 @@ function todayISO(): string {
  *  - Si ≥ 1 día y qty > 0, crea la tx de yield y actualiza la fecha.
  *  - Si la regla tiene `endDate` en el pasado, acumula solo hasta ese corte.
  */
+export interface AccrualResult {
+  /** Cantidad de txs de yield creadas. */
+  txsCreated: number;
+  /** Resumen por regla para el toast (ticker + qty). */
+  details: Array<{ assetId: string; qty: number; days: number }>;
+}
+
+/**
+ * Ejecuta el accrual para todas las reglas activas. Llama a esto UNA VEZ
+ * por sesión (el hook `useYieldAccrual` lo garantiza con un ref).
+ *
+ * Por cada regla:
+ *  - Calcula días desde `lastAccrualDate` (o `startDate`).
+ *  - Si ≥ 1 día y qty > 0, crea la tx de yield y actualiza la fecha.
+ *  - Si la regla tiene `endDate` en el pasado, acumula solo hasta ese corte.
+ *
+ * Devuelve un resumen con las txs creadas para que el caller pueda mostrar
+ * un toast informativo.
+ */
 export async function runYieldAccrual(
   rules: StakingRule[],
   txs: Transaction[],
-): Promise<void> {
+): Promise<AccrualResult> {
   const today = todayISO();
   const fxSnapshot = await loadLatestFxSnapshot();
+  const result: AccrualResult = { txsCreated: 0, details: [] };
 
   for (const rule of rules) {
     if (!rule.active) continue;
@@ -127,5 +147,10 @@ export async function runYieldAccrual(
       await db.transactions.add(tx);
       await db.stakingRules.update(rule.id, { lastAccrualDate: accrualToStr });
     });
+
+    result.txsCreated += 1;
+    result.details.push({ assetId: yieldAssetId, qty: yieldQty, days });
   }
+
+  return result;
 }

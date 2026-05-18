@@ -25,8 +25,9 @@ import { Icon } from '@/components/ui/Icon';
 import { TagBadge } from '@/components/ui/TagBadge';
 import { BucketChip } from '@/components/ui/BucketChip';
 import { NuevaReglaStakingDialog } from '@/components/dialogs/NuevaReglaStakingDialog';
+import { EditarReglaStakingDialog } from '@/components/dialogs/EditarReglaStakingDialog';
 import type { RulePerformance } from '@/lib/staking';
-import type { PortfolioBucket } from '@/lib/types';
+import type { PortfolioBucket, StakingRule } from '@/lib/types';
 
 export function Staking() {
   const summary = useStakingSummary();
@@ -34,6 +35,7 @@ export function Staking() {
   const assets = useAssets();
   const { hidden } = useUIStore();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editRule, setEditRule] = useState<StakingRule | null>(null);
 
   return (
     <div className="flex flex-col gap-4 pb-6">
@@ -102,6 +104,7 @@ export function Staking() {
                     assets?.find((a) => a.id === p.rule.assetId)?.ticker ?? '—'
                   }
                   hidden={hidden}
+                  onEdit={() => setEditRule(p.rule)}
                   onToggleActive={async () => {
                     if (p.rule.active) await deactivateStakingRule(p.rule.id);
                     else await activateStakingRule(p.rule.id);
@@ -123,6 +126,13 @@ export function Staking() {
       )}
 
       <NuevaReglaStakingDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      {editRule && (
+        <EditarReglaStakingDialog
+          rule={editRule}
+          open={!!editRule}
+          onOpenChange={(o) => { if (!o) setEditRule(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -212,6 +222,7 @@ function RuleCard({
   accountTag,
   assetTicker,
   hidden,
+  onEdit,
   onToggleActive,
   onDelete,
 }: {
@@ -220,6 +231,7 @@ function RuleCard({
   accountTag: 'A' | 'B';
   assetTicker: string;
   hidden: boolean;
+  onEdit: () => void;
   onToggleActive: () => void;
   onDelete: () => void;
 }) {
@@ -298,6 +310,9 @@ function RuleCard({
       )}
 
       <div className="mt-3 flex justify-end gap-2">
+        <Button variant="ghost" size="sm" leftIcon="edit" onClick={onEdit}>
+          Editar
+        </Button>
         <Button variant="ghost" size="sm" onClick={onToggleActive}>
           {rule.active ? 'Pausar' : 'Reactivar'}
         </Button>

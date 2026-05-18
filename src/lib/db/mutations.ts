@@ -430,6 +430,32 @@ export async function createStakingRule(
   return rule;
 }
 
+export interface UpdateStakingRuleInput {
+  apyPct?: number;
+  payoutFrequency?: 'daily' | 'weekly' | 'monthly';
+  /** Pasar `null` para eliminar el asset de recompensa (vuelve al mismo activo). */
+  rewardAssetId?: string | null;
+  endDate?: string | null;
+}
+
+/**
+ * Actualiza campos editables de una regla de staking.
+ * NO permite cambiar `assetId`, `accountId` ni `portfolioId` — eso requeriría
+ * recalcular `lastAccrualDate` y puede confundir el motor de accrual.
+ */
+export async function updateStakingRule(
+  ruleId: string,
+  patch: UpdateStakingRuleInput,
+): Promise<void> {
+  const update: Partial<StakingRule> = {};
+  if (patch.apyPct !== undefined) update.apyPct = patch.apyPct;
+  if (patch.payoutFrequency !== undefined) update.payoutFrequency = patch.payoutFrequency;
+  if ('rewardAssetId' in patch) update.rewardAssetId = patch.rewardAssetId ?? undefined;
+  if ('endDate' in patch) update.endDate = patch.endDate ?? undefined;
+  if (Object.keys(update).length === 0) return;
+  await db.stakingRules.update(ruleId, update);
+}
+
 export async function deactivateStakingRule(ruleId: string): Promise<void> {
   await db.stakingRules.update(ruleId, { active: false });
 }

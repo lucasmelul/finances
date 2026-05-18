@@ -120,6 +120,50 @@ async function stubParse(
   const lower = text.toLowerCase();
   const isBuy = /\b(comp|compr|compré|compre)/.test(lower);
   const isSell = /\b(vend|vendí|vende|vendi)/.test(lower);
+  const isFee = /\b(comisi[oó]n|comision|fee|cobr[ao]ron|cobran)\b/.test(lower);
+
+  // ─── Fee / comisión ───────────────────────────────────────────────────────
+  if (isFee && !isBuy && !isSell) {
+    // "comisión de 0.001 BTC", "pagué 5 USDT de fee en Binance", "fee de $10"
+    const m = text.match(/(\d+(?:[.,]\d+)?)\s+([a-zA-Z]+)/);
+    // También "fee de $10" sin ticker → usamos USD implícito
+    const dollarM = !m ? text.match(/\$\s*(\d+(?:[.,]\d+)?)/) : null;
+    const qty = m
+      ? parseFloat(m[1].replace(',', '.'))
+      : dollarM
+        ? parseFloat(dollarM[1].replace(',', '.'))
+        : null;
+    if (qty == null || qty <= 0) return null;
+
+    const tickerRaw = m ? m[2].toUpperCase() : 'USD';
+    const asset = assets.find((a) => a.ticker === tickerRaw);
+    if (!asset) return null;
+
+    const accountMatch = accounts.find((a) =>
+      new RegExp(`\\b${escapeRegex(a.name)}\\b`, 'i').test(text),
+    );
+    const account = accountMatch ?? pickDefaultAccount(asset, accounts);
+    if (!account) return null;
+
+    const autoFilled: string[] = ['date', 'priceUSD'];
+    if (!accountMatch) autoFilled.push('account');
+
+    return {
+      kind: 'fee',
+      assetId: asset.id,
+      qty,
+      unitPrice: 0,
+      priceCurrency: asset.currency,
+      total: 0,
+      totalCurrency: asset.currency,
+      accountId: account.id,
+      bucket: 'largo',
+      date: new Date().toISOString(),
+      autoFilled,
+    };
+  }
+  // ─── Fin fee ──────────────────────────────────────────────────────────────
+
   if (!isBuy && !isSell) return null;
 
   // Cantidad + ticker
@@ -401,10 +445,8 @@ export function Chat() {
     const msg = messages.find((m) => m.id === msgId);
     if (!msg?.parsed) return;
     const p = msg.parsed;
-    if (p.unitPrice == null) {
-      // Edge case: no pudimos parsear precio. Forzar al usuario a editar
-      // antes de persistir (por ahora no tenemos editor, así que cancelamos
-      // y pedimos reintento).
+    // Para fees el precio no es relevante (qty ya es el monto de la comisión).
+    if (p.unitPrice == null && p.kind !== 'fee') {
       setMessages((all) =>
         all.map((m) =>
           m.id === msgId
@@ -627,8 +669,8 @@ export function Chat() {
           }}
           placeholder={
             hasAI
-              ? 'Comprá BTC, vende NVDA, ¿cuánto tengo? simulame…'
-              : 'Compré 0.05 BTC a 95400 en Binance'
+              ? 'Comprá BTC, vende NVDA, comisión de 5 USDT, ¿cuánto tengo?…'
+              : 'Compré 0.05 BTC a 95400 · comisión de 0.001 BTC en Binance'
           }
           className={cn(
             'h-11 flex-1 rounded-xl border border-border-subtle bg-bg-surface px-3.5 text-sm text-text-primary',
