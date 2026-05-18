@@ -365,6 +365,93 @@ export async function deleteTransaction(txId: string): Promise<void> {
   await db.transactions.delete(txId);
 }
 
+// ─── Swap ──────────────────────────────────────────────────────────────────
+
+export interface CreateSwapInput {
+  /** Asset que entregás (sell leg). */
+  fromAssetId: string;
+  fromQty: number;
+  /** Precio de mercado del fromAsset en USD. Default 1 (para stablecoins). */
+  fromUnitPriceUSD?: number;
+  /** Asset que recibís (buy leg). */
+  toAssetId: string;
+  toQty: number;
+  accountId: string;
+  bucket?: PortfolioBucket;
+  portfolioId?: string;
+  date?: string;
+  notes?: string;
+}
+
+/**
+ * Registra un intercambio (swap) entre dos activos en la misma cuenta:
+ *  - Leg de venta: `sell fromAssetId qty=fromQty` al precio de mercado.
+ *  - Leg de compra: `buy toAssetId qty=toQty` al precio implícito derivado
+ *    del ratio de cantidades.
+ *
+ * Las dos txs se persisten atómicamente. La nota incluye el ticker contrario
+ * para que la pantalla Operaciones muestre el contexto del swap.
+ */
+export async function createSwap(
+  input: CreateSwapInput,
+  fromTicker: string,
+  toTicker: string,
+): Promise<[Transaction, Transaction]> {
+  if (input.fromQty <= 0) throw new Error('La cantidad a entregar debe ser mayor a 0.');
+  if (input.toQty <= 0) throw new Error('La cantidad a recibir debe ser mayor a 0.');
+
+  const portfolioId =
+    input.portfolioId ??
+    (input.bucket ? portfolioIdForBucket(input.bucket) : undefined);
+  if (!portfolioId) throw new Error('createSwap: requiere portfolioId o bucket.');
+
+  const now = new Date().toISOString();
+  const date = input.date ?? now;
+  const latestFx = await loadLatestFxSnapshot();
+  const fromUnitPrice = input.fromUnitPriceUSD ?? 1;
+  // Precio implícito del toAsset: cuántos USD vale cada unidad recibida.
+  const toUnitPrice = (input.fromQty * fromUnitPrice) / input.toQty;
+
+  const sellTx: Transaction = {
+    id: newId(),
+    kind: 'sell',
+    date,
+    accountId: input.accountId,
+    portfolioId,
+    assetId: input.fromAssetId,
+    qty: input.fromQty,
+    unitPrice: fromUnitPrice,
+    priceCurrency: 'USD',
+    fxSnapshot: latestFx,
+    notes: input.notes ?? `Swap → ${toTicker}`,
+    source: 'chat',
+    createdAt: now,
+  };
+
+  const buyTx: Transaction = {
+    id: newId(),
+    kind: 'buy',
+    date,
+    accountId: input.accountId,
+    portfolioId,
+    assetId: input.toAssetId,
+    qty: input.toQty,
+    unitPrice: toUnitPrice,
+    priceCurrency: 'USD',
+    fxSnapshot: latestFx,
+    notes: input.notes ?? `Swap ← ${fromTicker}`,
+    source: 'chat',
+    createdAt: now,
+  };
+
+  await db.transaction('rw', db.transactions, async () => {
+    await db.transactions.add(sellTx);
+    await db.transactions.add(buyTx);
+  });
+
+  return [sellTx, buyTx];
+}
+
 // ─── Staking rules ─────────────────────────────────────────────────────────
 
 export interface CreateStakingRuleInput {

@@ -27,7 +27,7 @@ import { TagBadge } from '@/components/ui/TagBadge';
 import { BucketChip } from '@/components/ui/BucketChip';
 import { useAccounts, useAssets } from '@/lib/db/queries';
 import { usePortfolioMetrics, usePriceMap, useRiskMetrics, useLiquidityMetrics } from '@/lib/db/derived';
-import { createAsset, createTransaction, createTransfer, deleteTransaction } from '@/lib/db/mutations';
+import { createAsset, createTransaction, createTransfer, createSwap, deleteTransaction } from '@/lib/db/mutations';
 import { CEDEARS } from '@/data/cedears';
 import { hasAI, interpretMessage, type ChatIntent } from '@/lib/api/chat-ai';
 import type { ExtractedTransactionData, ExtractedTransferData } from '@/lib/api/anthropic';
@@ -48,6 +48,8 @@ interface ChatMessage {
   parsed?: ParsedTx;
   /** Si el mensaje tiene un recibo de transferencia/retiro. */
   parsedTransfer?: ParsedTransfer;
+  /** Si el mensaje tiene un recibo de swap (intercambio entre activos). */
+  parsedSwap?: ParsedSwap;
   /** Estado del recibo. */
   status?: ReceiptStatus;
   /** Mensaje de error si `status === 'error'`. */
@@ -90,6 +92,20 @@ interface ParsedTransfer {
   unitPriceUSD: number;
 }
 
+interface ParsedSwap {
+  fromAssetId: string;
+  fromQty: number;
+  /** Precio de mercado del fromAsset en USD (1 para stablecoins). */
+  fromUnitPriceUSD: number;
+  toAssetId: string;
+  toQty: number;
+  /** Precio implícito del toAsset = fromQty * fromUnitPriceUSD / toQty. */
+  toUnitPriceUSD: number;
+  accountId: string;
+  bucket: PortfolioBucket;
+  date: string;
+}
+
 // ─── Helpers de display ────────────────────────────────────────────────────
 
 const TX_KIND_LABEL: Record<string, string> = {
@@ -121,6 +137,7 @@ async function stubParse(
   const isBuy = /\b(comp|compr|compré|compre)/.test(lower);
   const isSell = /\b(vend|vendí|vende|vendi)/.test(lower);
   const isFee = /\b(comisi[oó]n|comision|fee|cobr[ao]ron|cobran)\b/.test(lower);
+  const isSwap = /\b(swap[aeiouáéíóú]?[eé]?|intercambi[aeoéó]|cambi[eé]|convert[ií])\b/.test(lower);
 
   // ─── Fee / comisión ───────────────────────────────────────────────────────
   if (isFee && !isBuy && !isSell) {
@@ -164,7 +181,7 @@ async function stubParse(
   }
   // ─── Fin fee ──────────────────────────────────────────────────────────────
 
-  if (!isBuy && !isSell) return null;
+  if (!isBuy && !isSell && !isFee) return null;
 
   // Cantidad + ticker
   const m = text.match(/(\d+(?:[.,]\d+)?)\s+([a-zA-Z]+)/);
@@ -223,6 +240,63 @@ async function stubParse(
     bucket: 'largo', // default — el usuario puede cambiarlo en el recibo
     date: new Date().toISOString(),
     autoFilled,
+  };
+}
+
+/**
+ * Parser stub para swaps: "swapeé 500 USDT por 0.0052 BTC en Nexo".
+ * Patrón: [verb] [qty1] [ticker1] (por|a|en) [qty2] [ticker2] (en [cuenta])?
+ * Requiere ambas cantidades — si falta alguna, retorna null.
+ */
+function stubParseSwap(
+  text: string,
+  assets: Asset[],
+  accounts: Account[],
+  prices: Map<string, { price: number; currency: string }>,
+): ParsedSwap | null {
+  const lower = text.toLowerCase();
+  const isSwap = /\b(swap[aeiouáéíóú]?[eé]?|intercambi[aeoéó]|cambi[eé]|convert[ií])\b/.test(lower);
+  if (!isSwap) return null;
+
+  // Capturar: [qty1] [ticker1] (por|a) [qty2] [ticker2]
+  const m = text.match(
+    /(\d+(?:[.,]\d+)?)\s+([a-zA-Z]+)\s+(?:por|a)\s+(\d+(?:[.,]\d+)?)\s+([a-zA-Z]+)/i,
+  );
+  if (!m) return null;
+
+  const fromQty = parseFloat(m[1].replace(',', '.'));
+  const fromTicker = m[2].toUpperCase();
+  const toQty = parseFloat(m[3].replace(',', '.'));
+  const toTicker = m[4].toUpperCase();
+
+  const fromAsset = assets.find((a) => a.ticker === fromTicker);
+  const toAsset = assets.find((a) => a.ticker === toTicker);
+  if (!fromAsset || !toAsset) return null;
+
+  const accountMatch = accounts.find((a) =>
+    new RegExp(`\\b${escapeRegex(a.name)}\\b`, 'i').test(text),
+  );
+  const account = accountMatch ?? pickDefaultAccount(fromAsset, accounts);
+  if (!account) return null;
+
+  // Precio del fromAsset: 1 para stablecoins/cash, mercado para el resto.
+  let fromUnitPriceUSD = 1;
+  const fp = prices.get(fromAsset.id);
+  if (fp && (fp.currency === 'USD' || fp.currency === 'USDT')) {
+    fromUnitPriceUSD = fp.price;
+  }
+  const toUnitPriceUSD = (fromQty * fromUnitPriceUSD) / toQty;
+
+  return {
+    fromAssetId: fromAsset.id,
+    fromQty,
+    fromUnitPriceUSD,
+    toAssetId: toAsset.id,
+    toQty,
+    toUnitPriceUSD,
+    accountId: account.id,
+    bucket: 'largo',
+    date: new Date().toISOString().slice(0, 10),
   };
 }
 
@@ -380,6 +454,27 @@ export function Chat() {
         status: 'pending',
       };
     }
+    if (intent.type === 'create_swap') {
+      const parsedSwap = resolveSwapData(intent.data, assets ?? [], accounts ?? [], prices ?? new Map());
+      if (!parsedSwap) {
+        return {
+          id,
+          role: 'assistant',
+          text: intent.assistantMessage + (intent.missingFields.length
+            ? ''
+            : '\n\nNo pude resolver los activos o la cuenta. Chequeá que estén cargados.'),
+          timestamp: ts,
+        };
+      }
+      return {
+        id,
+        role: 'assistant',
+        text: intent.assistantMessage,
+        timestamp: ts,
+        parsedSwap,
+        status: 'pending',
+      };
+    }
     if (intent.type === 'query_portfolio') {
       const answer = answerQuery(intent.query, intent.filter, {
         portfolio,
@@ -420,6 +515,24 @@ export function Chat() {
   /** Fallback al regex local si no hay AI o falla. */
   async function addStubReply(trimmed: string) {
     if (!assets || !accounts) return;
+
+    // Intentar swap primero (patrón más específico).
+    const parsedSwap = stubParseSwap(trimmed, assets, accounts, prices ?? new Map());
+    if (parsedSwap) {
+      setMessages((m) => [
+        ...m,
+        {
+          id: `m-${Date.now() + 1}`,
+          role: 'assistant',
+          text: 'Listo. Revisá el swap y confirmá:',
+          timestamp: new Date().toISOString(),
+          parsedSwap,
+          status: 'pending',
+        },
+      ]);
+      return;
+    }
+
     const parsed = await stubParse(trimmed, assets, accounts);
     setMessages((m) => [
       ...m,
@@ -428,7 +541,7 @@ export function Chat() {
         role: 'assistant',
         text: parsed
           ? 'Listo. Revisá el recibo y confirmá:'
-          : 'No pude entenderlo. Probá: "compré 0.05 BTC a 95400 en Binance".',
+          : 'No pude entenderlo. Probá: "compré 0.05 BTC a 95400", "swapeé 500 USDT por 0.005 BTC en Nexo".',
         timestamp: new Date().toISOString(),
         parsed: parsed ?? undefined,
         status: parsed ? 'pending' : undefined,
@@ -526,6 +639,60 @@ export function Chat() {
             : m,
         ),
       );
+    }
+  }, [messages]);
+
+  const handleConfirmSwap = useCallback(async (msgId: string) => {
+    const msg = messages.find((m) => m.id === msgId);
+    if (!msg?.parsedSwap) return;
+    const p = msg.parsedSwap;
+    const fromAsset = assets?.find((a) => a.id === p.fromAssetId);
+    const toAsset = assets?.find((a) => a.id === p.toAssetId);
+    try {
+      const [sellTx, buyTx] = await createSwap(
+        {
+          fromAssetId: p.fromAssetId,
+          fromQty: p.fromQty,
+          fromUnitPriceUSD: p.fromUnitPriceUSD,
+          toAssetId: p.toAssetId,
+          toQty: p.toQty,
+          accountId: p.accountId,
+          bucket: p.bucket,
+          date: `${p.date}T12:00:00.000Z`,
+        },
+        fromAsset?.ticker ?? p.fromAssetId,
+        toAsset?.ticker ?? p.toAssetId,
+      );
+      setMessages((all) =>
+        all.map((m) =>
+          m.id === msgId
+            ? { ...m, status: 'confirmed', persistedTxIds: [sellTx.id, buyTx.id] }
+            : m,
+        ),
+      );
+    } catch (err) {
+      setMessages((all) =>
+        all.map((m) =>
+          m.id === msgId
+            ? { ...m, status: 'error', errorText: err instanceof Error ? err.message : 'Error' }
+            : m,
+        ),
+      );
+    }
+  }, [messages, assets]);
+
+  const handleUndoSwap = useCallback(async (msgId: string) => {
+    const msg = messages.find((m) => m.id === msgId);
+    if (!msg?.persistedTxIds?.length) return;
+    try {
+      for (const txId of msg.persistedTxIds) await deleteTransaction(txId);
+      setMessages((all) =>
+        all.map((m) =>
+          m.id === msgId ? { ...m, status: 'cancelled', persistedTxIds: undefined } : m,
+        ),
+      );
+    } catch (err) {
+      console.error('No se pudo deshacer el swap', err);
     }
   }, [messages]);
 
@@ -635,6 +802,8 @@ export function Chat() {
                 onUndo={() => handleUndo(msg.id)}
                 onConfirmTransfer={() => handleConfirmTransfer(msg.id)}
                 onUndoTransfer={() => handleUndoTransfer(msg.id)}
+                onConfirmSwap={() => handleConfirmSwap(msg.id)}
+                onUndoSwap={() => handleUndoSwap(msg.id)}
               />
             ))}
             {isThinking && (
@@ -831,6 +1000,47 @@ function resolveTransferData(
   };
 }
 
+// ─── Resolución de swap intent ────────────────────────────────────────────
+
+function resolveSwapData(
+  data: import('@/lib/api/anthropic').ExtractedSwapData,
+  assets: Asset[],
+  accounts: Account[],
+  prices: Map<string, { price: number; currency: string }>,
+): ParsedSwap | null {
+  if (!data.fromTicker || !data.toTicker || data.fromQty == null || data.toQty == null) return null;
+
+  const fromAsset = assets.find((a) => a.ticker.toUpperCase() === data.fromTicker!.toUpperCase());
+  const toAsset = assets.find((a) => a.ticker.toUpperCase() === data.toTicker!.toUpperCase());
+  if (!fromAsset || !toAsset) return null;
+
+  let account: Account | undefined;
+  if (data.accountName) {
+    account = accounts.find((a) => a.name.toLowerCase() === data.accountName!.toLowerCase());
+  }
+  if (!account) account = pickDefaultAccount(fromAsset, accounts);
+  if (!account) return null;
+
+  let fromUnitPriceUSD = 1;
+  const fp = prices.get(fromAsset.id);
+  if (fp && (fp.currency === 'USD' || fp.currency === 'USDT')) {
+    fromUnitPriceUSD = fp.price;
+  }
+  const toUnitPriceUSD = (data.fromQty * fromUnitPriceUSD) / data.toQty;
+
+  return {
+    fromAssetId: fromAsset.id,
+    fromQty: data.fromQty,
+    fromUnitPriceUSD,
+    toAssetId: toAsset.id,
+    toQty: data.toQty,
+    toUnitPriceUSD,
+    accountId: account.id,
+    bucket: (data.bucket as PortfolioBucket | undefined) ?? 'largo',
+    date: data.date ?? new Date().toISOString().slice(0, 10),
+  };
+}
+
 // ─── Respuestas a queries del portfolio ───────────────────────────────────
 
 /**
@@ -891,6 +1101,8 @@ function Message({
   onUndo,
   onConfirmTransfer,
   onUndoTransfer,
+  onConfirmSwap,
+  onUndoSwap,
 }: {
   msg: ChatMessage;
   assets: Asset[];
@@ -901,6 +1113,8 @@ function Message({
   onUndo: () => void;
   onConfirmTransfer: () => void;
   onUndoTransfer: () => void;
+  onConfirmSwap: () => void;
+  onUndoSwap: () => void;
 }) {
   const isUser = msg.role === 'user';
   const time = fmtTime(new Date(msg.timestamp));
@@ -942,6 +1156,19 @@ function Message({
           onConfirm={onConfirmTransfer}
           onCancel={onCancel}
           onUndo={onUndoTransfer}
+        />
+      )}
+      {msg.parsedSwap && (
+        <SwapReceipt
+          parsed={msg.parsedSwap}
+          status={msg.status ?? 'pending'}
+          errorText={msg.errorText}
+          assets={assets}
+          accounts={accounts}
+          canUndo={!!msg.persistedTxIds?.length && msg.status === 'confirmed'}
+          onConfirm={onConfirmSwap}
+          onCancel={onCancel}
+          onUndo={onUndoSwap}
         />
       )}
       <div className="px-1 font-mono text-[10px] text-text-muted">{time}</div>
@@ -1215,6 +1442,130 @@ function ReceiptRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-baseline justify-between gap-2">
       <span className="text-[11px] uppercase tracking-wider text-text-muted">{label}</span>
       <span className="text-right font-medium text-text-primary">{value}</span>
+    </div>
+  );
+}
+
+// ─── SwapReceipt ───────────────────────────────────────────────────────────
+
+function SwapReceipt({
+  parsed,
+  status,
+  errorText,
+  assets,
+  accounts,
+  canUndo,
+  onConfirm,
+  onCancel,
+  onUndo,
+}: {
+  parsed: ParsedSwap;
+  status: ReceiptStatus;
+  errorText?: string;
+  assets: Asset[];
+  accounts: Account[];
+  canUndo: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  onUndo: () => void;
+}) {
+  const fromAsset = assets.find((a) => a.id === parsed.fromAssetId);
+  const toAsset = assets.find((a) => a.id === parsed.toAssetId);
+  const account = accounts.find((a) => a.id === parsed.accountId);
+  if (!fromAsset || !toAsset || !account) return null;
+
+  const readonly = status === 'confirmed' || status === 'cancelled';
+  const fromDecimals = fromAsset.type === 'crypto' ? 4 : 2;
+  const toDecimals = toAsset.type === 'crypto' ? 6 : 2;
+
+  return (
+    <div
+      className={cn(
+        'w-full max-w-[85%] rounded-2xl border bg-bg-surface p-3.5 transition-opacity',
+        readonly ? 'border-border-subtle/60 opacity-70' : 'border-border-subtle',
+        status === 'error' && 'border-negative/40',
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+          Recibo · Swap
+          {status === 'confirmed' && (
+            <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-positive/[0.14] px-1.5 py-0.5 text-positive">
+              <Icon name="check" size={10} /> guardado
+            </span>
+          )}
+          {status === 'cancelled' && (
+            <span className="ml-2 rounded bg-text-muted/15 px-1.5 py-0.5 text-text-muted">
+              cancelado
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Visualización del swap */}
+      <div className="mb-3 flex items-center justify-center gap-3 py-2">
+        <div className="text-center">
+          <div className="text-[18px] font-bold tabular-nums text-negative">
+            -{fmt(parsed.fromQty, fromDecimals)}
+          </div>
+          <div className="text-[11px] font-semibold text-text-secondary">{fromAsset.ticker}</div>
+        </div>
+        <Icon name="arrow-right" size={18} className="text-text-muted" />
+        <div className="text-center">
+          <div className="text-[18px] font-bold tabular-nums text-positive">
+            +{fmt(parsed.toQty, toDecimals)}
+          </div>
+          <div className="text-[11px] font-semibold text-text-secondary">{toAsset.ticker}</div>
+        </div>
+      </div>
+
+      <div className="space-y-1.5 rounded-xl bg-bg-base px-3 py-2">
+        <ReceiptRow
+          label="Precio implícito"
+          value={`${fmtMoney(parsed.toUnitPriceUSD, 'USD')} / ${toAsset.ticker}`}
+        />
+        <ReceiptRow label="Cuenta" value={account.name} />
+        <ReceiptRow label="Fecha" value={parsed.date} />
+      </div>
+
+      <div className="mt-2 px-1 text-[10px] text-text-muted">
+        Genera 1 venta de {fromAsset.ticker} + 1 compra de {toAsset.ticker}
+      </div>
+
+      {!readonly && (
+        <div className="mt-3 flex gap-2 border-t border-border-subtle pt-2.5">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-lg border border-border-subtle py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-elevated"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 rounded-lg bg-accent py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            Confirmar swap
+          </button>
+        </div>
+      )}
+      {canUndo && (
+        <div className="border-t border-border-subtle px-3.5 py-2">
+          <button
+            type="button"
+            onClick={onUndo}
+            className="text-[11px] text-text-muted underline underline-offset-2 hover:text-text-secondary"
+          >
+            Deshacer
+          </button>
+        </div>
+      )}
+      {status === 'error' && errorText && (
+        <div className="border-t border-border-subtle px-3.5 py-2 text-[11px] text-negative">
+          {errorText}
+        </div>
+      )}
     </div>
   );
 }

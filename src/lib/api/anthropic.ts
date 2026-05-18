@@ -40,6 +40,12 @@ export type ChatIntent =
       assistantMessage: string;
     }
   | {
+      type: 'create_swap';
+      data: ExtractedSwapData;
+      missingFields: string[];
+      assistantMessage: string;
+    }
+  | {
       type: 'query_portfolio';
       query: 'total' | 'by_type' | 'by_account' | 'idle' | 'pnl';
       filter?: string; // ej. "crypto", "Binance", "BTC"
@@ -71,6 +77,22 @@ export interface ExtractedTransferData {
   /** Bucket/cartera. */
   bucket?: 'corto' | 'medio' | 'largo' | 'trade';
   /** ISO date. */
+  date?: string;
+  notes?: string;
+}
+
+export interface ExtractedSwapData {
+  /** Ticker del activo que entregás. */
+  fromTicker?: string;
+  /** Cantidad que entregás. */
+  fromQty?: number;
+  /** Ticker del activo que recibís. */
+  toTicker?: string;
+  /** Cantidad que recibís. Puede omitirse si el usuario solo menciona uno. */
+  toQty?: number;
+  /** Cuenta donde ocurre el swap. */
+  accountName?: string;
+  bucket?: 'corto' | 'medio' | 'largo' | 'trade';
   date?: string;
   notes?: string;
 }
@@ -186,6 +208,34 @@ const TOOLS: Anthropic.Messages.Tool[] = [
     },
   },
   {
+    name: 'create_swap',
+    description:
+      'Registra un intercambio (swap) entre dos activos en la misma cuenta. ' +
+      'Usá esta tool cuando el usuario diga "swapeé", "cambié X por Y", "intercambié", "convertí X en Y", "pasé X a Y" dentro de la misma plataforma. ' +
+      'Diferencia con create_transfer: acá hay DOS activos distintos involucrados. ' +
+      'Si falta fromTicker, toTicker, fromQty o toQty, ponelos en missingFields.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        fromTicker: { type: 'string', description: 'Ticker del activo que entregás (ej. USDT)' },
+        fromQty: { type: 'number', description: 'Cantidad que entregás' },
+        toTicker: { type: 'string', description: 'Ticker del activo que recibís (ej. BTC)' },
+        toQty: { type: 'number', description: 'Cantidad que recibís' },
+        accountName: { type: 'string', description: 'Nombre de la cuenta/plataforma donde ocurre el swap' },
+        bucket: { type: 'string', enum: ['corto', 'medio', 'largo', 'trade'] },
+        date: { type: 'string', description: 'ISO date (YYYY-MM-DD)' },
+        notes: { type: 'string' },
+        missingFields: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Campos críticos faltantes. Vacío si todo está claro.',
+        },
+        assistantMessage: { type: 'string' },
+      },
+      required: ['assistantMessage'],
+    },
+  },
+  {
     name: 'query_portfolio',
     description:
       'Responde una pregunta del usuario sobre su portfolio (total, por tipo, por cuenta, capital ocioso, PnL). ' +
@@ -268,7 +318,13 @@ Convenciones AR:
 - Buckets: corto (<6m), mediano/medio (6m-2a), largo (HODL), trade (especulativo)
 - Default bucket = "largo" si no se aclara
 
-Cuándo usar create_transfer (NO create_transaction):
+Cuándo usar create_swap (NO create_transaction):
+- "swapeé 500 USDT por 0.005 BTC en Nexo" → fromTicker=USDT, fromQty=500, toTicker=BTC, toQty=0.005
+- "cambié 1000 USDT en ETH" → fromTicker=USDT, fromQty=1000, toTicker=ETH
+- "intercambié 200 USDC por NEXO" → create_swap
+- "convertí mis USDT en BTC" → create_swap
+
+Cuándo usar create_transfer (NO create_transaction ni create_swap):
 - "deposité 1000 USD en Nexo" → depósito puro (sin fromAccountName, toAccountName=Nexo)
 - "ingresé plata en Binance" → depósito puro
 - "retiré 500 USD de Nexo" → retiro puro (fromAccountName=Nexo, sin toAccountName)
@@ -346,6 +402,24 @@ function parseToolUse(block: Anthropic.Messages.ToolUseBlock): ChatIntent {
           fromAccountName: input.fromAccountName as string | undefined,
           toAccountName: input.toAccountName as string | undefined,
           bucket: input.bucket as ExtractedTransferData['bucket'],
+          date: input.date as string | undefined,
+          notes: input.notes as string | undefined,
+        },
+        missingFields: Array.isArray(input.missingFields)
+          ? (input.missingFields as string[])
+          : [],
+        assistantMessage: msg,
+      };
+    case 'create_swap':
+      return {
+        type: 'create_swap',
+        data: {
+          fromTicker: input.fromTicker as string | undefined,
+          fromQty: input.fromQty as number | undefined,
+          toTicker: input.toTicker as string | undefined,
+          toQty: input.toQty as number | undefined,
+          accountName: input.accountName as string | undefined,
+          bucket: input.bucket as ExtractedSwapData['bucket'],
           date: input.date as string | undefined,
           notes: input.notes as string | undefined,
         },

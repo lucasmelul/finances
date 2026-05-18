@@ -20,7 +20,7 @@
  */
 
 import type { Account, Asset } from '@/lib/types';
-import type { ChatIntent, ExtractedTransactionData } from './anthropic';
+import type { ChatIntent, ExtractedTransactionData, ExtractedSwapData } from './anthropic';
 import { CEDEARS } from '@/data/cedears';
 
 // ─── Setup ─────────────────────────────────────────────────────────────────
@@ -162,6 +162,33 @@ const FUNCTIONS: GeminiFunctionDeclaration[] = [
     },
   },
   {
+    name: 'create_swap',
+    description:
+      'Registra un intercambio (swap) entre dos activos en la misma cuenta. ' +
+      'Usá esta tool cuando el usuario diga "swapeé", "cambié X por Y", "intercambié", "convertí X en Y" dentro de la misma plataforma. ' +
+      'Diferencia con create_transfer: acá hay DOS activos distintos. Si falta fromTicker, toTicker o fromQty, ponelos en missingFields.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        fromTicker: { type: 'STRING', description: 'Ticker del activo que entregás (ej. USDT)' },
+        fromQty: { type: 'NUMBER', description: 'Cantidad que entregás' },
+        toTicker: { type: 'STRING', description: 'Ticker del activo que recibís (ej. BTC)' },
+        toQty: { type: 'NUMBER', description: 'Cantidad que recibís' },
+        accountName: { type: 'STRING', description: 'Nombre de la cuenta/plataforma' },
+        bucket: { type: 'STRING', enum: ['corto', 'medio', 'largo', 'trade'] },
+        date: { type: 'STRING', description: 'ISO date (YYYY-MM-DD)' },
+        notes: { type: 'STRING' },
+        missingFields: {
+          type: 'ARRAY',
+          items: { type: 'STRING' },
+          description: 'Campos críticos faltantes. Vacío si todo está claro.',
+        },
+        assistantMessage: { type: 'STRING' },
+      },
+      required: ['assistantMessage'],
+    },
+  },
+  {
     name: 'search_asset',
     description: 'Busca un activo en biblioteca + APIs externas. Usar para "buscá X", "qué es X".',
     parameters: {
@@ -199,7 +226,13 @@ Convenciones AR:
 - Buckets: corto (<6m), mediano/medio (6m-2a), largo (HODL), trade (especulativo)
 - Default bucket = "largo" si no se aclara
 
-Cuándo usar create_transfer (NO create_transaction):
+Cuándo usar create_swap (NO create_transaction):
+- "swapeé 500 USDT por 0.005 BTC en Nexo" → fromTicker=USDT, fromQty=500, toTicker=BTC, toQty=0.005
+- "cambié 1000 USDT en ETH" → fromTicker=USDT, fromQty=1000, toTicker=ETH
+- "intercambié 200 USDC por NEXO" → create_swap
+- "convertí mis USDT en BTC" → create_swap
+
+Cuándo usar create_transfer (NO create_transaction ni create_swap):
 - "deposité 1000 USD en Nexo" → depósito puro (sin fromAccountName, toAccountName=Nexo)
 - "ingresé plata en Binance" → depósito puro
 - "retiré 500 USD de Nexo" → retiro puro (fromAccountName=Nexo, sin toAccountName)
@@ -323,6 +356,24 @@ function parseFunctionCall(call: {
           fromAccountName: args.fromAccountName as string | undefined,
           toAccountName: args.toAccountName as string | undefined,
           bucket: args.bucket as 'corto' | 'medio' | 'largo' | 'trade' | undefined,
+          date: args.date as string | undefined,
+          notes: args.notes as string | undefined,
+        },
+        missingFields: Array.isArray(args.missingFields)
+          ? (args.missingFields as string[])
+          : [],
+        assistantMessage: msg,
+      };
+    case 'create_swap':
+      return {
+        type: 'create_swap',
+        data: {
+          fromTicker: args.fromTicker as string | undefined,
+          fromQty: args.fromQty as number | undefined,
+          toTicker: args.toTicker as string | undefined,
+          toQty: args.toQty as number | undefined,
+          accountName: args.accountName as string | undefined,
+          bucket: args.bucket as ExtractedSwapData['bucket'],
           date: args.date as string | undefined,
           notes: args.notes as string | undefined,
         },
