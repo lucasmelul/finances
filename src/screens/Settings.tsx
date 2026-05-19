@@ -8,7 +8,7 @@
  *  3. Versión + info técnica.
  */
 
-import { useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAccounts, useTransactions } from '@/lib/db/queries';
@@ -21,6 +21,7 @@ import {
   exportDatabase,
   downloadAsJson,
   importDatabase,
+  type ImportMode,
   readJsonFile,
 } from '@/lib/db/portability';
 import { hasAnthropic } from '@/lib/api/anthropic';
@@ -93,6 +94,8 @@ export function Settings() {
     }
   }
 
+  const importModeRef = React.useRef<ImportMode>('replace');
+
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -101,8 +104,10 @@ export function Settings() {
     setBusy(true);
     try {
       const raw = await readJsonFile(file);
-      const { imported } = await importDatabase(raw);
-      setImportOk(`Importados ${imported} registros correctamente.`);
+      const mode = importModeRef.current;
+      const { imported } = await importDatabase(raw, mode);
+      const modeLabel = mode === 'replace' ? 'reemplazado todo con' : 'mergeado';
+      setImportOk(`✓ ${modeLabel} ${imported} registros.`);
       window.location.reload();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Error al importar.');
@@ -110,6 +115,11 @@ export function Settings() {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  }
+
+  function triggerImport(mode: ImportMode) {
+    importModeRef.current = mode;
+    fileInputRef.current?.click();
   }
 
   return (
@@ -182,7 +192,6 @@ export function Settings() {
         </div>
         <p className="mb-3 text-[12px] text-text-muted">
           Exportá tus datos a JSON para hacer un backup o moverlos a otro dispositivo.
-          Al importar, los registros existentes se actualizan (merge).
         </p>
 
         {importError && (
@@ -207,16 +216,32 @@ export function Settings() {
           >
             Exportar JSON
           </Button>
-          <Button
-            variant="ghost"
-            size="md"
-            full
-            disabled={busy}
-            leftIcon="arrow-up"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Importar desde JSON
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="ghost"
+              size="md"
+              full
+              disabled={busy}
+              leftIcon="arrow-up"
+              onClick={() => triggerImport('replace')}
+            >
+              Importar (reemplazar)
+            </Button>
+            <Button
+              variant="ghost"
+              size="md"
+              full
+              disabled={busy}
+              leftIcon="arrow-up"
+              onClick={() => triggerImport('merge')}
+            >
+              Importar (merge)
+            </Button>
+          </div>
+          <p className="text-[10px] text-text-muted">
+            <strong>Reemplazar</strong>: borra todo y carga el backup desde cero.
+            <strong> Merge</strong>: agrega o actualiza sin borrar lo existente.
+          </p>
           <input
             ref={fileInputRef}
             type="file"

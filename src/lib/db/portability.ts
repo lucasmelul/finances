@@ -81,44 +81,71 @@ export function downloadAsJson(data: DbExport): void {
 }
 
 /**
- * Importa un DbExport al IndexedDB.
- *
- * Estrategia "replace": limpia todas las tablas de usuario antes de insertar.
- * Esto evita el ConstraintError en el índice único `[type+ticker]` de assets
- * cuando el backup tiene activos con IDs distintos a los que ya existen en la DB.
- *
- * La limpieza y la inserción son atómicas — si falla a la mitad, Dexie
- * hace rollback y los datos anteriores se restauran.
+ * Modos de importación:
+ *  - `replace`: borra todo antes de insertar. Útil para "empezar de cero"
+ *    con un backup nuevo. Evita cualquier conflicto de índices únicos.
+ *  - `merge`: conserva los datos existentes y sobreescribe solo los que
+ *    vienen en el backup (upsert por ID). Para assets resuelve el conflicto
+ *    del índice único `[type+ticker]` eliminando previamente el registro
+ *    anterior si tiene un ID distinto.
  */
-export async function importDatabase(data: unknown): Promise<{ imported: number }> {
+export type ImportMode = 'replace' | 'merge';
+
+export async function importDatabase(
+  data: unknown,
+  mode: ImportMode = 'replace',
+): Promise<{ imported: number }> {
   const dump = validate(data);
   const { accounts, assets, transactions, stakingRules, yieldAccruals, watchlist } = dump;
-  let imported = 0;
-
   const { priceCache = [] } = dump;
+  let imported = 0;
 
   await db.transaction(
     'rw',
     [db.accounts, db.assets, db.transactions, db.stakingRules, db.yieldAccruals, db.watchlist, db.priceCache],
     async () => {
-      // Limpiar primero para evitar conflictos de índices únicos (ej. [type+ticker]).
-      await Promise.all([
-        db.accounts.clear(),
-        db.assets.clear(),
-        db.transactions.clear(),
-        db.stakingRules.clear(),
-        db.yieldAccruals.clear(),
-        db.watchlist.clear(),
-        db.priceCache.clear(),
-      ]);
-
-      if (accounts.length)    { await db.accounts.bulkAdd(accounts);       imported += accounts.length; }
-      if (assets.length)      { await db.assets.bulkAdd(assets);           imported += assets.length; }
-      if (transactions.length){ await db.transactions.bulkAdd(transactions); imported += transactions.length; }
-      if (stakingRules.length){ await db.stakingRules.bulkAdd(stakingRules); imported += stakingRules.length; }
-      if (yieldAccruals.length){ await db.yieldAccruals.bulkAdd(yieldAccruals); imported += yieldAccruals.length; }
-      if (watchlist.length)   { await db.watchlist.bulkAdd(watchlist);     imported += watchlist.length; }
-      if (priceCache.length)  { await db.priceCache.bulkAdd(priceCache);   imported += priceCache.length; }
+      if (mode === 'replace') {
+        // Limpiar todo primero — sin conflictos posibles.
+        await Promise.all([
+          db.accounts.clear(),
+          db.assets.clear(),
+          db.transactions.clear(),
+          db.stakingRules.clear(),
+          db.yieldAccruals.clear(),
+          db.watchlist.clear(),
+          db.priceCache.clear(),
+        ]);
+        if (accounts.length)     { await db.accounts.bulkAdd(accounts);        imported += accounts.length; }
+        if (assets.length)       { await db.assets.bulkAdd(assets);            imported += assets.length; }
+        if (transactions.length) { await db.transactions.bulkAdd(transactions); imported += transactions.length; }
+        if (stakingRules.length) { await db.stakingRules.bulkAdd(stakingRules); imported += stakingRules.length; }
+        if (yieldAccruals.length){ await db.yieldAccruals.bulkAdd(yieldAccruals); imported += yieldAccruals.length; }
+        if (watchlist.length)    { await db.watchlist.bulkAdd(watchlist);      imported += watchlist.length; }
+        if (priceCache.length)   { await db.priceCache.bulkAdd(priceCache);    imported += priceCache.length; }
+      } else {
+        // Merge: upsert por ID. Para assets, primero resolver conflictos
+        // del índice único [type+ticker]: si ya existe un asset con el mismo
+        // (type, ticker) pero distinto ID, lo borramos antes del bulkPut.
+        if (assets.length) {
+          for (const asset of assets) {
+            const conflict = await db.assets
+              .where('[type+ticker]')
+              .equals([asset.type, asset.ticker])
+              .first();
+            if (conflict && conflict.id !== asset.id) {
+              await db.assets.delete(conflict.id);
+            }
+          }
+          await db.assets.bulkPut(assets);
+          imported += assets.length;
+        }
+        if (accounts.length)     { await db.accounts.bulkPut(accounts);        imported += accounts.length; }
+        if (transactions.length) { await db.transactions.bulkPut(transactions); imported += transactions.length; }
+        if (stakingRules.length) { await db.stakingRules.bulkPut(stakingRules); imported += stakingRules.length; }
+        if (yieldAccruals.length){ await db.yieldAccruals.bulkPut(yieldAccruals); imported += yieldAccruals.length; }
+        if (watchlist.length)    { await db.watchlist.bulkPut(watchlist);      imported += watchlist.length; }
+        if (priceCache.length)   { await db.priceCache.bulkPut(priceCache);    imported += priceCache.length; }
+      }
     },
   );
 
