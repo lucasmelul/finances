@@ -12,7 +12,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { fmtDateShort, fmtTime } from '@/lib/format';
 import { useUIStore } from '@/lib/store';
-import { Icon } from '@/components/ui/Icon';
+import { Icon, type IconName } from '@/components/ui/Icon';
 import { NavItem } from '@/components/composite/NavItem';
 import { SearchDialog } from '@/components/dialogs/SearchDialog';
 
@@ -22,13 +22,30 @@ interface MobileChromeProps {
 
 /** Mapea pathname → screen key + título visible. */
 function deriveScreen(pathname: string): { key: string; title: string } {
-  if (pathname.startsWith('/carteras')) return { key: 'carteras', title: 'Carteras' };
-  if (pathname.startsWith('/asset')) return { key: 'inicio', title: 'Activo' };
-  if (pathname.startsWith('/oportunidades')) return { key: 'oport', title: 'Oportunidades' };
-  if (pathname.startsWith('/cuentas')) return { key: 'cuentas', title: 'Cuentas' };
-  if (pathname.startsWith('/chat')) return { key: 'chat', title: 'Operar' };
+  if (pathname.startsWith('/carteras'))     return { key: 'carteras',    title: 'Carteras' };
+  if (pathname.startsWith('/asset'))        return { key: 'inicio',      title: 'Activo' };
+  if (pathname.startsWith('/oportunidades')) return { key: 'oport',      title: 'Oportunidades' };
+  if (pathname.startsWith('/cuentas'))      return { key: 'cuentas',     title: 'Cuentas' };
+  if (pathname.startsWith('/chat'))         return { key: 'chat',        title: 'Operar' };
+  if (pathname.startsWith('/operaciones'))  return { key: 'mas',         title: 'Operaciones' };
+  if (pathname.startsWith('/staking'))      return { key: 'mas',         title: 'Staking' };
+  if (pathname.startsWith('/simulador'))    return { key: 'mas',         title: 'Simulador' };
+  if (pathname.startsWith('/insights'))     return { key: 'mas',         title: 'Insights' };
+  if (pathname.startsWith('/importar'))     return { key: 'mas',         title: 'Importar' };
+  if (pathname.startsWith('/settings'))     return { key: 'mas',         title: 'Ajustes' };
   return { key: 'inicio', title: 'Patrimonio' };
 }
+
+/** Pantallas disponibles en el sheet "Más". */
+const MAS_ITEMS: Array<{ icon: IconName; label: string; path: string }> = [
+  { icon: 'list',       label: 'Operaciones',   path: '/operaciones' },
+  { icon: 'zap',        label: 'Staking',        path: '/staking' },
+  { icon: 'trend-up',   label: 'Oportunidades',  path: '/oportunidades' },
+  { icon: 'spark',      label: 'Insights',       path: '/insights' },
+  { icon: 'chart',      label: 'Simulador',      path: '/simulador' },
+  { icon: 'arrow-down', label: 'Importar',       path: '/importar' },
+  { icon: 'sliders',    label: 'Ajustes',        path: '/settings' },
+];
 
 export function MobileChrome({ children }: MobileChromeProps) {
   const navigate = useNavigate();
@@ -38,6 +55,7 @@ export function MobileChrome({ children }: MobileChromeProps) {
   const isChat = key === 'chat';
   const now = useNow(60_000); // refresca cada minuto el header date/time
   const [searchOpen, setSearchOpen] = useState(false);
+  const [masOpen, setMasOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-col bg-bg-base font-sans text-text-primary">
@@ -114,16 +132,16 @@ export function MobileChrome({ children }: MobileChromeProps) {
           {/* Hueco para el FAB */}
           <div className="w-14" />
           <NavItem
-            icon="trend-up"
-            label="Oport."
-            active={key === 'oport'}
-            onClick={() => navigate('/oportunidades')}
-          />
-          <NavItem
             icon="wallet"
             label="Cuentas"
             active={key === 'cuentas'}
             onClick={() => navigate('/cuentas')}
+          />
+          <NavItem
+            icon="menu"
+            label="Más"
+            active={key === 'mas' || masOpen}
+            onClick={() => setMasOpen((o) => !o)}
           />
 
           {/* FAB Operar — al chat */}
@@ -147,6 +165,48 @@ export function MobileChrome({ children }: MobileChromeProps) {
           </span>
         </div>
       </nav>
+
+      {/* Sheet "Más" — overlay + panel deslizable desde abajo */}
+      {masOpen && (
+        <>
+          {/* Overlay */}
+          <div
+            className="absolute inset-0 z-40 bg-black/40"
+            onClick={() => setMasOpen(false)}
+          />
+          {/* Panel */}
+          <div className="absolute inset-x-0 bottom-0 z-50 rounded-t-2xl border-t border-border-subtle bg-bg-surface pb-10 pt-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between px-5">
+              <span className="text-sm font-semibold text-text-primary">Más pantallas</span>
+              <button
+                type="button"
+                onClick={() => setMasOpen(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated text-text-muted"
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-1 px-3">
+              {MAS_ITEMS.map((item) => (
+                <button
+                  key={item.path}
+                  type="button"
+                  onClick={() => { navigate(item.path); setMasOpen(false); }}
+                  className={cn(
+                    'flex flex-col items-center gap-1.5 rounded-xl px-1 py-3 transition-colors',
+                    location.pathname.startsWith(item.path)
+                      ? 'bg-accent/[0.12] text-accent'
+                      : 'text-text-secondary hover:bg-bg-elevated',
+                  )}
+                >
+                  <Icon name={item.icon} size={22} />
+                  <span className="text-[10px] font-medium leading-tight">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Modal de búsqueda global. Vive en el chrome para que esté disponible
           desde cualquier pantalla sin duplicar wiring. */}

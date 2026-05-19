@@ -26,27 +26,31 @@ interface NavEntry {
 }
 
 const NAV_ENTRIES: NavEntry[] = [
-  { id: 'inicio', icon: 'home', label: 'Inicio', path: '/' },
-  { id: 'carteras', icon: 'briefcase', label: 'Carteras', path: '/carteras' },
-  { id: 'oport', icon: 'trend-up', label: 'Oportunidades', path: '/oportunidades' },
-  { id: 'cuentas', icon: 'wallet', label: 'Cuentas', path: '/cuentas' },
-  { id: 'staking', icon: 'spark', label: 'Staking', path: '/staking' },
-  { id: 'simulador', icon: 'sliders', label: 'Simulador', path: '/simulador' },
-  { id: 'importar', icon: 'list', label: 'Importar', path: '/importar' },
-  { id: 'chat', icon: 'send', label: 'Operar', path: '/chat' },
-  { id: 'settings', icon: 'sliders', label: 'Ajustes', path: '/settings' },
+  { id: 'inicio',      icon: 'home',     label: 'Inicio',        path: '/' },
+  { id: 'carteras',    icon: 'briefcase', label: 'Carteras',     path: '/carteras' },
+  { id: 'operaciones', icon: 'list',     label: 'Operaciones',   path: '/operaciones' },
+  { id: 'oport',       icon: 'trend-up', label: 'Oportunidades', path: '/oportunidades' },
+  { id: 'cuentas',     icon: 'wallet',   label: 'Cuentas',       path: '/cuentas' },
+  { id: 'staking',     icon: 'zap',      label: 'Staking',       path: '/staking' },
+  { id: 'insights',    icon: 'spark',    label: 'Insights',      path: '/insights' },
+  { id: 'simulador',   icon: 'chart',    label: 'Simulador',     path: '/simulador' },
+  { id: 'chat',        icon: 'send',     label: 'Operar',        path: '/chat' },
+  { id: 'importar',    icon: 'arrow-down', label: 'Importar',    path: '/importar' },
+  { id: 'settings',    icon: 'sliders',  label: 'Ajustes',       path: '/settings' },
 ];
 
 function deriveActiveNav(pathname: string): string {
-  if (pathname.startsWith('/carteras')) return 'carteras';
-  if (pathname.startsWith('/asset')) return 'inicio';
+  if (pathname.startsWith('/carteras'))    return 'carteras';
+  if (pathname.startsWith('/asset'))       return 'inicio';
   if (pathname.startsWith('/oportunidades')) return 'oport';
-  if (pathname.startsWith('/cuentas')) return 'cuentas';
-  if (pathname.startsWith('/chat')) return 'chat';
-  if (pathname.startsWith('/simulador')) return 'simulador';
-  if (pathname.startsWith('/staking')) return 'staking';
-  if (pathname.startsWith('/importar')) return 'importar';
-  if (pathname.startsWith('/settings')) return 'settings';
+  if (pathname.startsWith('/operaciones')) return 'operaciones';
+  if (pathname.startsWith('/cuentas'))     return 'cuentas';
+  if (pathname.startsWith('/chat'))        return 'chat';
+  if (pathname.startsWith('/simulador'))   return 'simulador';
+  if (pathname.startsWith('/staking'))     return 'staking';
+  if (pathname.startsWith('/insights'))    return 'insights';
+  if (pathname.startsWith('/importar'))    return 'importar';
+  if (pathname.startsWith('/settings'))    return 'settings';
   return 'inicio';
 }
 
