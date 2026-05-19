@@ -82,10 +82,13 @@ export function downloadAsJson(data: DbExport): void {
 
 /**
  * Importa un DbExport al IndexedDB.
- * Estrategia "merge upsert": si un ID ya existe, se sobreescribe.
- * No borra datos existentes que NO estén en el backup.
  *
- * Para un "restore completo" el caller debería hacer resetToClean() primero.
+ * Estrategia "replace": limpia todas las tablas de usuario antes de insertar.
+ * Esto evita el ConstraintError en el índice único `[type+ticker]` de assets
+ * cuando el backup tiene activos con IDs distintos a los que ya existen en la DB.
+ *
+ * La limpieza y la inserción son atómicas — si falla a la mitad, Dexie
+ * hace rollback y los datos anteriores se restauran.
  */
 export async function importDatabase(data: unknown): Promise<{ imported: number }> {
   const dump = validate(data);
@@ -98,13 +101,24 @@ export async function importDatabase(data: unknown): Promise<{ imported: number 
     'rw',
     [db.accounts, db.assets, db.transactions, db.stakingRules, db.yieldAccruals, db.watchlist, db.priceCache],
     async () => {
-      if (accounts.length) { await db.accounts.bulkPut(accounts); imported += accounts.length; }
-      if (assets.length) { await db.assets.bulkPut(assets); imported += assets.length; }
-      if (transactions.length) { await db.transactions.bulkPut(transactions); imported += transactions.length; }
-      if (stakingRules.length) { await db.stakingRules.bulkPut(stakingRules); imported += stakingRules.length; }
-      if (yieldAccruals.length) { await db.yieldAccruals.bulkPut(yieldAccruals); imported += yieldAccruals.length; }
-      if (watchlist.length) { await db.watchlist.bulkPut(watchlist); imported += watchlist.length; }
-      if (priceCache.length) { await db.priceCache.bulkPut(priceCache); imported += priceCache.length; }
+      // Limpiar primero para evitar conflictos de índices únicos (ej. [type+ticker]).
+      await Promise.all([
+        db.accounts.clear(),
+        db.assets.clear(),
+        db.transactions.clear(),
+        db.stakingRules.clear(),
+        db.yieldAccruals.clear(),
+        db.watchlist.clear(),
+        db.priceCache.clear(),
+      ]);
+
+      if (accounts.length)    { await db.accounts.bulkAdd(accounts);       imported += accounts.length; }
+      if (assets.length)      { await db.assets.bulkAdd(assets);           imported += assets.length; }
+      if (transactions.length){ await db.transactions.bulkAdd(transactions); imported += transactions.length; }
+      if (stakingRules.length){ await db.stakingRules.bulkAdd(stakingRules); imported += stakingRules.length; }
+      if (yieldAccruals.length){ await db.yieldAccruals.bulkAdd(yieldAccruals); imported += yieldAccruals.length; }
+      if (watchlist.length)   { await db.watchlist.bulkAdd(watchlist);     imported += watchlist.length; }
+      if (priceCache.length)  { await db.priceCache.bulkAdd(priceCache);   imported += priceCache.length; }
     },
   );
 
