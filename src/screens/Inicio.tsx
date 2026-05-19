@@ -16,6 +16,8 @@
  */
 
 import { useMemo, useState } from 'react';
+import type { HoldingAggregate, FxView } from '@/lib/holdings';
+import type { AssetRowVM } from '@/components/composite/AssetRow';
 import { useNavigate } from 'react-router-dom';
 import { fmt, fmtMoney, fmtTime, relTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -148,9 +150,16 @@ export function Inicio() {
         hidden={hidden}
       />
 
-      {/* ─── 2. Distribución por tipo ─── */}
-      {risk && !hidden && (
-        <AllocationBar risk={risk} hidden={hidden} />
+      {/* ─── 2. Distribución general ─── */}
+      {(risk || rows || holdings) && (
+        <DistributionCard
+          risk={risk}
+          rows={rows}
+          holdings={holdings}
+          accounts={accounts}
+          portfolio={portfolio}
+          hidden={hidden}
+        />
       )}
 
       {/* ─── 3. INSIGHTS — "Qué hacer hoy" ─── */}
@@ -636,49 +645,267 @@ function FxCard() {
   );
 }
 
-// ─── Allocation bar ───────────────────────────────────────────────────────
+// ─── Distribution Card ────────────────────────────────────────────────────
 
-interface AllocationSegment {
+const DIST_COLORS = [
+  '#6366F1', '#22D3EE', '#34D399', '#FB923C',
+  '#A78BFA', '#F472B6', '#FBBF24', '#60A5FA',
+];
+
+type DistView = 'tipo' | 'activo' | 'cuenta';
+
+interface DistSlice {
   label: string;
   pct: number;
+  valueUSD: number;
   color: string;
 }
 
-function AllocationBar({ risk, hidden }: { risk: RiskMetrics; hidden: boolean }) {
-  const segments: AllocationSegment[] = [
-    { label: 'Cripto', pct: risk.cryptoExposurePct, color: '#6366F1' },
-    { label: 'Acciones', pct: risk.equityExposurePct, color: '#22D3EE' },
-    { label: 'Stables', pct: risk.stableExposurePct, color: '#34D399' },
-    { label: 'Bonos', pct: risk.bondExposurePct, color: '#FB923C' },
-    { label: 'Efectivo', pct: risk.cashExposurePct, color: '#A78BFA' },
+function buildTipoSlices(risk: RiskMetrics | undefined): DistSlice[] {
+  if (!risk) return [];
+  return [
+    { label: 'Cripto',    pct: risk.cryptoExposurePct,  valueUSD: 0, color: DIST_COLORS[0] },
+    { label: 'Acciones',  pct: risk.equityExposurePct,  valueUSD: 0, color: DIST_COLORS[1] },
+    { label: 'Stables',   pct: risk.stableExposurePct,  valueUSD: 0, color: DIST_COLORS[2] },
+    { label: 'Bonos',     pct: risk.bondExposurePct,    valueUSD: 0, color: DIST_COLORS[3] },
+    { label: 'Efectivo',  pct: risk.cashExposurePct,    valueUSD: 0, color: DIST_COLORS[4] },
   ].filter((s) => s.pct > 0.5);
+}
 
-  if (segments.length === 0) return null;
+function buildActivoSlices(
+  rows: AssetRowVM[] | undefined,
+  totalValueUSD: number,
+): DistSlice[] {
+  if (!rows || rows.length === 0 || totalValueUSD <= 0) return [];
+  const sorted = [...rows].sort((a, b) => b.valueUSD - a.valueUSD);
+  const top = sorted.slice(0, 6);
+  const otherValue = sorted.slice(6).reduce((s, r) => s + r.valueUSD, 0);
+  const slices: DistSlice[] = top.map((r, i) => ({
+    label: r.ticker,
+    pct: (r.valueUSD / totalValueUSD) * 100,
+    valueUSD: r.valueUSD,
+    color: DIST_COLORS[i % DIST_COLORS.length],
+  }));
+  if (otherValue > 0) {
+    slices.push({
+      label: 'Otros',
+      pct: (otherValue / totalValueUSD) * 100,
+      valueUSD: otherValue,
+      color: '#71717A',
+    });
+  }
+  return slices.filter((s) => s.pct > 0.2);
+}
+
+function buildCuentaSlices(
+  holdings: HoldingAggregate[] | undefined,
+  accounts: Account[] | undefined,
+  prices: Map<string, { price: number; currency: string }> | undefined,
+  fx: FxView,
+  totalValueUSD: number,
+): DistSlice[] {
+  if (!holdings || !accounts || totalValueUSD <= 0) return [];
+  const byAccount = new Map<string, number>();
+  for (const h of holdings) {
+    const p = prices?.get(h.assetId);
+    if (!p) continue;
+    const usdPrice = p.currency === 'USD' || p.currency === 'USDT'
+      ? p.price
+      : p.currency === 'ARS' ? p.price / fx.ccl : 0;
+    const val = h.qty * usdPrice;
+    byAccount.set(h.accountId, (byAccount.get(h.accountId) ?? 0) + val);
+  }
+  const sorted = [...byAccount.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([accId, val], i) => ({
+      label: accounts.find((a) => a.id === accId)?.name ?? accId,
+      pct: (val / totalValueUSD) * 100,
+      valueUSD: val,
+      color: DIST_COLORS[i % DIST_COLORS.length],
+    }));
+  return sorted.filter((s) => s.pct > 0.2);
+}
+
+/** Donut SVG puro — sin dependencias externas. */
+function DonutChart({
+  slices,
+  hidden,
+}: {
+  slices: DistSlice[];
+  hidden: boolean;
+}) {
+  const SIZE = 120;
+  const R = 44;
+  const CIRC = 2 * Math.PI * R;
+  const cx = SIZE / 2;
+  const cy = SIZE / 2;
+
+  if (slices.length === 0) return null;
+
+  // Calcular dasharray/offset para cada segmento
+  let cumPct = 0;
+  const segments = slices.map((s) => {
+    const dash = (s.pct / 100) * CIRC;
+    const gap = CIRC - dash;
+    // offset negativo: rotamos para empezar desde las 12h
+    const offset = CIRC * (1 - cumPct / 100);
+    cumPct += s.pct;
+    return { ...s, dash, gap, offset };
+  });
+
+  // Slice más grande para mostrar en el centro
+  const biggest = slices.reduce((a, b) => (b.pct > a.pct ? b : a), slices[0]);
+
+  return (
+    <div className="relative mx-auto" style={{ width: SIZE, height: SIZE }}>
+      <svg
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        width={SIZE}
+        height={SIZE}
+        style={{ transform: 'rotate(-90deg)' }}
+      >
+        {/* Track base */}
+        <circle
+          cx={cx} cy={cy} r={R}
+          fill="none"
+          stroke="hsl(var(--bg-elevated))"
+          strokeWidth={18}
+        />
+        {segments.map((s) => (
+          <circle
+            key={s.label}
+            cx={cx} cy={cy} r={R}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={18}
+            strokeDasharray={`${s.dash.toFixed(2)} ${s.gap.toFixed(2)}`}
+            strokeDashoffset={s.offset.toFixed(2)}
+            strokeLinecap="butt"
+          />
+        ))}
+      </svg>
+      {/* Centro: label + % del slice más grande */}
+      <div
+        className="absolute inset-0 flex flex-col items-center justify-center"
+        style={{ pointerEvents: 'none' }}
+      >
+        <span className="text-[10px] font-medium text-text-muted leading-none">
+          {hidden ? '••' : biggest.label}
+        </span>
+        <span className="text-[15px] font-bold tabular-nums text-text-primary leading-tight">
+          {hidden ? '••' : `${biggest.pct.toFixed(0)}%`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DistributionCard({
+  risk,
+  rows,
+  holdings,
+  accounts,
+  portfolio,
+  hidden,
+}: {
+  risk: RiskMetrics | undefined;
+  rows: AssetRowVM[] | undefined;
+  holdings: HoldingAggregate[] | undefined;
+  accounts: Account[] | undefined;
+  portfolio: ReturnType<typeof usePortfolioMetrics>;
+  hidden: boolean;
+}) {
+  const [view, setView] = useState<DistView>('tipo');
+  const prices = usePriceMap();
+  const fx = useFx();
+  const totalValueUSD = portfolio?.totalValueUSD ?? 0;
+
+  const slices = useMemo<DistSlice[]>(() => {
+    if (view === 'tipo') return buildTipoSlices(risk);
+    if (view === 'activo') return buildActivoSlices(rows, totalValueUSD);
+    return buildCuentaSlices(holdings, accounts, prices, fx, totalValueUSD);
+  }, [view, risk, rows, holdings, accounts, prices, fx, totalValueUSD]);
+
+  if (slices.length === 0) return null;
+
+  const TABS: { key: DistView; label: string }[] = [
+    { key: 'tipo', label: 'Por tipo' },
+    { key: 'activo', label: 'Por activo' },
+    { key: 'cuenta', label: 'Por cuenta' },
+  ];
 
   return (
     <section className="rounded-2xl border border-border-subtle bg-bg-surface p-3.5">
-      <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
-        Distribución del portfolio
+      {/* Header + tabs */}
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+          Distribución
+        </div>
+        <div className="flex gap-0.5 rounded-lg border border-border-subtle bg-bg-base p-0.5">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setView(t.key)}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors',
+                view === t.key
+                  ? 'bg-bg-elevated text-text-primary'
+                  : 'text-text-muted hover:text-text-secondary',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="mb-2.5 flex h-2.5 overflow-hidden rounded-full bg-bg-elevated">
-        {segments.map((s) => (
-          <div
-            key={s.label}
-            style={{ width: `${s.pct}%`, background: s.color }}
-          />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-        {segments.map((s) => (
-          <div key={s.label} className="flex items-center gap-1.5 text-[11px]">
-            <span
-              className="h-2 w-2 shrink-0 rounded-sm"
-              style={{ background: s.color }}
-            />
-            <span className="text-text-secondary">{s.label}</span>
-            <span className="font-semibold tabular-nums text-text-primary">
-              {hidden ? '••' : `${s.pct.toFixed(0)}%`}
+
+      {/* Donut + leyenda horizontal */}
+      <div className="flex items-center gap-4">
+        <DonutChart slices={slices} hidden={hidden} />
+        {/* Leyenda a la derecha del donut */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          {slices.slice(0, 5).map((s) => (
+            <div key={s.label} className="flex items-center gap-1.5 text-[11px]">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: s.color }}
+              />
+              <span className="min-w-0 flex-1 truncate text-text-secondary">
+                {s.label}
+              </span>
+              <span className="font-semibold tabular-nums text-text-primary">
+                {hidden ? '••' : `${s.pct.toFixed(0)}%`}
+              </span>
+            </div>
+          ))}
+          {slices.length > 5 && (
+            <span className="text-[10px] text-text-muted">
+              +{slices.length - 5} más
             </span>
+          )}
+        </div>
+      </div>
+
+      {/* Barras horizontales */}
+      <div className="mt-4 space-y-2">
+        {slices.map((s) => (
+          <div key={s.label}>
+            <div className="mb-0.5 flex items-center justify-between text-[10px]">
+              <span className="font-medium text-text-secondary">{s.label}</span>
+              <span className="tabular-nums text-text-muted">
+                {hidden ? '••' : `${s.pct.toFixed(1)}%`}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-bg-elevated">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: hidden ? '0%' : `${Math.min(s.pct, 100)}%`,
+                  background: s.color,
+                }}
+              />
+            </div>
           </div>
         ))}
       </div>
