@@ -22,6 +22,7 @@ import { db } from './schema';
 import type {
   Account,
   Asset,
+  FxRateCache,
   PriceCache,
   Transaction,
   StakingRule,
@@ -40,12 +41,14 @@ export interface DbExport {
   stakingRules: StakingRule[];
   yieldAccruals: YieldAccrual[];
   watchlist: WatchlistEntry[];
-  /** Precios iniciales opcionales — útil para activos sin feed automático (cash). */
+  /** Precios de activos — se regeneran por polling pero se exportan para mostrar valores de inmediato al hacer Pull. */
   priceCache?: PriceCache[];
+  /** Cotizaciones FX — se exportan para que el Pull muestre valores en ARS/USD de inmediato. */
+  fxRateCache?: FxRateCache[];
 }
 
 export async function exportDatabase(): Promise<DbExport> {
-  const [accounts, assets, transactions, stakingRules, yieldAccruals, watchlist, priceCache] =
+  const [accounts, assets, transactions, stakingRules, yieldAccruals, watchlist, priceCache, fxRateCache] =
     await Promise.all([
       db.accounts.toArray(),
       db.assets.toArray(),
@@ -53,7 +56,8 @@ export async function exportDatabase(): Promise<DbExport> {
       db.stakingRules.toArray(),
       db.yieldAccruals.toArray(),
       db.watchlist.toArray(),
-      db.priceCache.toArray(),   // incluido para que el Pull muestre valores de inmediato
+      db.priceCache.toArray(),
+      db.fxRateCache.toArray(),
     ]);
 
   return {
@@ -66,6 +70,7 @@ export async function exportDatabase(): Promise<DbExport> {
     yieldAccruals,
     watchlist,
     priceCache,
+    fxRateCache,
   };
 }
 
@@ -99,15 +104,14 @@ export async function importDatabase(
 ): Promise<{ imported: number }> {
   const dump = validate(data);
   const { accounts, assets, transactions, stakingRules, yieldAccruals, watchlist } = dump;
-  const { priceCache = [] } = dump;
+  const { priceCache = [], fxRateCache = [] } = dump;
   let imported = 0;
 
   await db.transaction(
     'rw',
-    [db.accounts, db.assets, db.transactions, db.stakingRules, db.yieldAccruals, db.watchlist, db.priceCache],
+    [db.accounts, db.assets, db.transactions, db.stakingRules, db.yieldAccruals, db.watchlist, db.priceCache, db.fxRateCache],
     async () => {
       if (mode === 'replace') {
-        // Limpiar todo primero — sin conflictos posibles.
         await Promise.all([
           db.accounts.clear(),
           db.assets.clear(),
@@ -116,18 +120,17 @@ export async function importDatabase(
           db.yieldAccruals.clear(),
           db.watchlist.clear(),
           db.priceCache.clear(),
+          db.fxRateCache.clear(),
         ]);
-        if (accounts.length)     { await db.accounts.bulkAdd(accounts);        imported += accounts.length; }
-        if (assets.length)       { await db.assets.bulkAdd(assets);            imported += assets.length; }
-        if (transactions.length) { await db.transactions.bulkAdd(transactions); imported += transactions.length; }
-        if (stakingRules.length) { await db.stakingRules.bulkAdd(stakingRules); imported += stakingRules.length; }
+        if (accounts.length)     { await db.accounts.bulkAdd(accounts);         imported += accounts.length; }
+        if (assets.length)       { await db.assets.bulkAdd(assets);             imported += assets.length; }
+        if (transactions.length) { await db.transactions.bulkAdd(transactions);  imported += transactions.length; }
+        if (stakingRules.length) { await db.stakingRules.bulkAdd(stakingRules);  imported += stakingRules.length; }
         if (yieldAccruals.length){ await db.yieldAccruals.bulkAdd(yieldAccruals); imported += yieldAccruals.length; }
-        if (watchlist.length)    { await db.watchlist.bulkAdd(watchlist);      imported += watchlist.length; }
-        if (priceCache.length)   { await db.priceCache.bulkAdd(priceCache);    imported += priceCache.length; }
+        if (watchlist.length)    { await db.watchlist.bulkAdd(watchlist);        imported += watchlist.length; }
+        if (priceCache.length)   { await db.priceCache.bulkAdd(priceCache);      imported += priceCache.length; }
+        if (fxRateCache.length)  { await db.fxRateCache.bulkAdd(fxRateCache);   imported += fxRateCache.length; }
       } else {
-        // Merge: upsert por ID. Para assets, primero resolver conflictos
-        // del índice único [type+ticker]: si ya existe un asset con el mismo
-        // (type, ticker) pero distinto ID, lo borramos antes del bulkPut.
         if (assets.length) {
           for (const asset of assets) {
             const conflict = await db.assets
@@ -141,12 +144,13 @@ export async function importDatabase(
           await db.assets.bulkPut(assets);
           imported += assets.length;
         }
-        if (accounts.length)     { await db.accounts.bulkPut(accounts);        imported += accounts.length; }
-        if (transactions.length) { await db.transactions.bulkPut(transactions); imported += transactions.length; }
-        if (stakingRules.length) { await db.stakingRules.bulkPut(stakingRules); imported += stakingRules.length; }
+        if (accounts.length)     { await db.accounts.bulkPut(accounts);         imported += accounts.length; }
+        if (transactions.length) { await db.transactions.bulkPut(transactions);  imported += transactions.length; }
+        if (stakingRules.length) { await db.stakingRules.bulkPut(stakingRules);  imported += stakingRules.length; }
         if (yieldAccruals.length){ await db.yieldAccruals.bulkPut(yieldAccruals); imported += yieldAccruals.length; }
-        if (watchlist.length)    { await db.watchlist.bulkPut(watchlist);      imported += watchlist.length; }
-        if (priceCache.length)   { await db.priceCache.bulkPut(priceCache);    imported += priceCache.length; }
+        if (watchlist.length)    { await db.watchlist.bulkPut(watchlist);        imported += watchlist.length; }
+        if (priceCache.length)   { await db.priceCache.bulkPut(priceCache);      imported += priceCache.length; }
+        if (fxRateCache.length)  { await db.fxRateCache.bulkPut(fxRateCache);   imported += fxRateCache.length; }
       }
     },
   );
