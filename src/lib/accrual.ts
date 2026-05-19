@@ -13,6 +13,11 @@
  *  diario/semanal/mensual). Para la acumulación interna siempre usamos el APY
  *  prorrateado por días — que es cómo lo calculan Nexo, Binance y la mayoría.
  *  Fórmula: qty × (APY/100) × (días/365).
+ *  La acumulación respeta `payoutFrequency`:
+ *   - daily   → acumula cada vez que pasa ≥ 1 día
+ *   - weekly  → acumula cuando pasaron ≥ 7 días
+ *   - monthly → acumula cuando pasó ≥ 1 mes calendario
+ *   - yearly  → acumula cuando pasó ≥ 1 año calendario
  *
  * Cross-asset:
  *  Si la regla tiene `rewardAssetId`, la tx de yield se crea con ese assetId
@@ -65,6 +70,40 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Días mínimos que deben pasar desde `lastDate` para que la frecuencia
+ * permita acumular.
+ *
+ * - daily   → 1 día
+ * - weekly  → 7 días
+ * - monthly → días hasta el mismo día del mes siguiente (28–31)
+ * - yearly  → días hasta el mismo día del año siguiente (365 o 366)
+ *
+ * Para monthly/yearly usamos fecha calendario exacta en vez de múltiplos
+ * fijos, así el accrual cae el mismo día del mes/año que el inicio.
+ */
+function minDaysForFrequency(
+  freq: 'daily' | 'weekly' | 'monthly' | 'yearly',
+  lastDate: Date,
+): number {
+  switch (freq) {
+    case 'daily':
+      return 1;
+    case 'weekly':
+      return 7;
+    case 'monthly': {
+      const next = new Date(lastDate);
+      next.setMonth(next.getMonth() + 1);
+      return (next.getTime() - lastDate.getTime()) / MS_PER_DAY;
+    }
+    case 'yearly': {
+      const next = new Date(lastDate);
+      next.setFullYear(next.getFullYear() + 1);
+      return (next.getTime() - lastDate.getTime()) / MS_PER_DAY;
+    }
+  }
+}
+
 // ─── Motor principal ───────────────────────────────────────────────────────
 
 export interface AccrualResult {
@@ -113,7 +152,10 @@ export async function runYieldAccrual(
     if (lastDate >= accrualTo) continue;
 
     const days = (accrualTo.getTime() - lastDate.getTime()) / MS_PER_DAY;
-    if (days < 1) continue;
+
+    // Respetar la frecuencia de pago: solo acumular cuando pasó el período completo.
+    const minDays = minDaysForFrequency(rule.payoutFrequency, lastDate);
+    if (days < minDays) continue;
 
     // Qty del activo stakeado (el capital que produce el rendimiento).
     const held = qtyHeld(txs, rule.assetId, rule.accountId, rule.portfolioId);
