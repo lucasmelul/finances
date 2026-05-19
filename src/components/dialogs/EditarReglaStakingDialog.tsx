@@ -22,11 +22,12 @@ const FREQ_OPTIONS: SelectOption[] = [
   { value: 'daily', label: 'Diario' },
   { value: 'weekly', label: 'Semanal' },
   { value: 'monthly', label: 'Mensual' },
+  { value: 'yearly', label: 'Anual' },
 ];
 
 const schema = z.object({
   apyPct: z.coerce.number().min(0.01, 'APY > 0').max(1000, 'APY < 1000'),
-  payoutFrequency: z.enum(['daily', 'weekly', 'monthly']),
+  payoutFrequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
   rewardAssetId: z.string().optional(),
 });
 

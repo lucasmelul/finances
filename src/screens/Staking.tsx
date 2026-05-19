@@ -270,7 +270,7 @@ function RuleCard({
           <div className="mt-1 flex items-center gap-2 text-[11px] text-text-muted">
             <span className="tabular-nums">{rule.apyPct}% APY</span>
             <span>·</span>
-            <span className="capitalize">{rule.payoutFrequency === 'daily' ? 'diario' : rule.payoutFrequency === 'weekly' ? 'semanal' : 'mensual'}</span>
+            <span className="capitalize">{{ daily: 'diario', weekly: 'semanal', monthly: 'mensual', yearly: 'anual' }[rule.payoutFrequency] ?? rule.payoutFrequency}</span>
             {rule.active && (
               <>
                 <span>·</span>

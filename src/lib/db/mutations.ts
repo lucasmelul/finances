@@ -461,7 +461,7 @@ export interface CreateStakingRuleInput {
   portfolioId?: string;
   rewardAssetId?: string;
   apyPct: number;
-  payoutFrequency: 'daily' | 'weekly' | 'monthly';
+  payoutFrequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   startDate?: string;
   endDate?: string;
   active?: boolean;

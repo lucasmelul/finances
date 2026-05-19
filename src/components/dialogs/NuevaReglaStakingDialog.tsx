@@ -27,6 +27,7 @@ const FREQ_OPTIONS: SelectOption[] = [
   { value: 'daily', label: 'Diario' },
   { value: 'weekly', label: 'Semanal' },
   { value: 'monthly', label: 'Mensual' },
+  { value: 'yearly', label: 'Anual' },
 ];
 
 const BUCKET_OPTIONS: ReadonlyArray<{ value: PortfolioBucket; label: string }> = [
@@ -42,7 +43,7 @@ const schema = z.object({
   accountId: z.string().min(1, 'Elegí una cuenta'),
   bucket: z.enum(['corto', 'medio', 'largo', 'trade']),
   apyPct: z.coerce.number().min(0.01, 'APY > 0').max(1000, 'APY < 1000'),
-  payoutFrequency: z.enum(['daily', 'weekly', 'monthly']),
+  payoutFrequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
 });
 
 type FormValues = z.infer<typeof schema>;
