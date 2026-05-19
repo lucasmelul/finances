@@ -67,10 +67,26 @@ export function TxRow({ vm, hidden = false, divider = false, onClick, className 
   const cfg = KIND_CONFIG[vm.kind];
   const decimals = vm.asset.type === 'crypto' ? 4 : 0;
   const date = new Date(vm.date);
-  const priceText =
-    vm.unitPrice != null && vm.priceCurrency
-      ? `${vm.priceCurrency === 'USD' ? 'US$' : '$'}${fmt(vm.unitPrice, vm.priceCurrency === 'USD' ? 2 : 0)}`
-      : relTime(date);
+
+  // Detectar "cambio de cartera": transfer con nota de bucket transfer.
+  const isBucketTransfer =
+    (vm.kind === 'transfer_out' || vm.kind === 'transfer_in') &&
+    /mover a cartera|desde cartera/i.test(vm.note ?? '');
+
+  // Label: "Cambio de cartera" cuando corresponde.
+  const label = isBucketTransfer ? 'Cambio de cartera' : cfg.label;
+
+  // Precio secundario: transfers muestran total (qty × precio), no precio unitario.
+  const priceText = (() => {
+    if (vm.unitPrice == null || !vm.priceCurrency) return relTime(date);
+    const curr = vm.priceCurrency === 'USD' ? 'US$' : '$';
+    const decimals2 = vm.priceCurrency === 'USD' ? 2 : 0;
+    if (vm.kind === 'transfer_in' || vm.kind === 'transfer_out') {
+      const total = vm.qty * vm.unitPrice;
+      return `${curr}${fmt(total, decimals2)}`;
+    }
+    return `${curr}${fmt(vm.unitPrice, decimals2)}`;
+  })();
 
   return (
     <button
@@ -89,7 +105,7 @@ export function TxRow({ vm, hidden = false, divider = false, onClick, className 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="text-[13px] font-semibold text-text-primary">
-            {cfg.label} · {vm.asset.ticker}
+            {label} · {vm.asset.ticker}
           </span>
           {vm.note && (
             <span className="text-[10px] italic text-text-muted">{vm.note}</span>
