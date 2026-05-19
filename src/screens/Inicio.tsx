@@ -273,9 +273,6 @@ function Hero({
   const pnlDisplay = portfolio
     ? metricToDisplay(portfolio.totalPnLUSD, displayCurrency, fx)
     : 0;
-  const yieldDisplay = portfolio
-    ? metricToDisplay(portfolio.totalYieldUSD, displayCurrency, fx)
-    : 0;
   const positive = (portfolio?.totalPnLUSD ?? 0) >= 0;
 
   return (

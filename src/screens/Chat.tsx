@@ -137,7 +137,6 @@ async function stubParse(
   const isBuy = /\b(comp|compr|compré|compre)/.test(lower);
   const isSell = /\b(vend|vendí|vende|vendi)/.test(lower);
   const isFee = /\b(comisi[oó]n|comision|fee|cobr[ao]ron|cobran)\b/.test(lower);
-  const isSwap = /\b(swap[aeiouáéíóú]?[eé]?|intercambi[aeoéó]|cambi[eé]|convert[ií])\b/.test(lower);
 
   // ─── Fee / comisión ───────────────────────────────────────────────────────
   if (isFee && !isBuy && !isSell) {
@@ -577,7 +576,7 @@ export function Chat() {
         accountId: p.accountId,
         bucket: p.bucket,
         qty: p.qty,
-        unitPrice: p.unitPrice,
+        unitPrice: p.unitPrice ?? 0,
         priceCurrency: p.priceCurrency,
         date: p.date,
         source: 'chat',
@@ -622,7 +621,6 @@ export function Chat() {
         unitPrice: p.unitPriceUSD,
         priceCurrency: 'USD',
         date: `${p.date}T12:00:00.000Z`,
-        source: 'chat',
       });
       setMessages((all) =>
         all.map((m) =>
