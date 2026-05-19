@@ -521,7 +521,7 @@ function GistSyncSection() {
               leftIcon="arrow-up"
               onClick={handlePush}
             >
-              {busy ? 'Subiendo…' : '↑ Push'}
+              {busy ? 'Subiendo…' : '↑ Subir'}
             </Button>
             <Button
               variant="ghost"
@@ -531,12 +531,12 @@ function GistSyncSection() {
               leftIcon="arrow-down"
               onClick={handlePull}
             >
-              {busy ? 'Descargando…' : '↓ Pull'}
+              {busy ? 'Descargando…' : '↓ Descargar'}
             </Button>
           </div>
           <p className="text-[10px] text-text-muted">
-            <strong>Push</strong>: sube tu portfolio al Gist.
-            <strong> Pull</strong>: baja el Gist y reemplaza los datos locales.
+            <strong>Subir</strong>: sube tu portfolio al Gist.
+            <strong> Descargar</strong>: baja el Gist y reemplaza los datos locales.
             Compartí el mismo token en el otro dispositivo.
           </p>
         </div>
