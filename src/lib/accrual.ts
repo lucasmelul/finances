@@ -166,7 +166,15 @@ export async function runYieldAccrual(
     // Calcular hasta qué fecha acumular respetando la frecuencia.
     // Para daily → hasta el límite duro. Para weekly/monthly/yearly →
     // hasta el fin del último período completo desde lastDate.
-    const cutoff = accrualCutoff(rule.payoutFrequency, lastDate, hardLimit);
+    //
+    // Excepción para plazos fijos vencidos: si la regla tiene endDate y ya
+    // venció (hardLimit === endDate < today), acreditamos el período restante
+    // sin esperar el próximo aniversario mensual/anual. Así un plazo fijo de
+    // 24 días con frecuencia mensual acredita todo al vencer en lugar de no
+    // acreditar nunca.
+    const isExpired = !!(rule.endDate && rule.endDate <= today);
+    const effectiveFreq = isExpired ? 'daily' : rule.payoutFrequency;
+    const cutoff = accrualCutoff(effectiveFreq, lastDate, hardLimit);
     if (!cutoff) continue; // no pasó todavía un período completo
 
     // Fecha de corte alineada al período (YYYY-MM-DD).

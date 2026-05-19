@@ -1,0 +1,611 @@
+{
+    "version": 1,
+    "exportedAt": "2026-05-19T00:00:00.000Z",
+    "accounts": [
+        {
+            "id": "cash",
+            "name": "Cash",
+            "kind": "bank",
+            "tag": "A",
+            "currency": "USD",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "galicia",
+            "name": "Galicia",
+            "kind": "bank",
+            "tag": "A",
+            "currency": "ARS",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "payoneer",
+            "name": "Payoneer",
+            "kind": "exchange",
+            "tag": "B",
+            "currency": "USD",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "nexo",
+            "name": "Nexo",
+            "kind": "exchange",
+            "tag": "B",
+            "currency": "USD",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "buenbit",
+            "name": "BuenBit",
+            "kind": "exchange",
+            "tag": "B",
+            "currency": "USD",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "bingx",
+            "name": "BingX",
+            "kind": "exchange",
+            "tag": "B",
+            "currency": "USD",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "binance",
+            "name": "Binance",
+            "kind": "exchange",
+            "tag": "B",
+            "currency": "USD",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "binance-meli",
+            "name": "Binance Meli",
+            "kind": "exchange",
+            "tag": "B",
+            "currency": "USD",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "balanz",
+            "name": "Balanz",
+            "kind": "broker",
+            "tag": "A",
+            "currency": "ARS",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "cocos",
+            "name": "Cocos",
+            "kind": "broker",
+            "tag": "A",
+            "currency": "ARS",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        }
+    ],
+    "assets": [
+        {
+            "id": "usd",
+            "type": "cash",
+            "ticker": "USD",
+            "name": "Dólares",
+            "currency": "USD",
+            "logo": "$",
+            "logoBg": "#4CAF50",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "ars",
+            "type": "cash",
+            "ticker": "ARS",
+            "name": "Pesos",
+            "currency": "ARS",
+            "logo": "$",
+            "logoBg": "#4285F4",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "eur",
+            "type": "cash",
+            "ticker": "EUR",
+            "name": "Euros",
+            "currency": "EUR",
+            "logo": "€",
+            "logoBg": "#3F51B5",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "usdt",
+            "type": "crypto",
+            "ticker": "USDT",
+            "name": "Tether",
+            "currency": "USD",
+            "logo": "T",
+            "logoBg": "#26A17B",
+            "coingeckoId": "tether",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "usdc",
+            "type": "crypto",
+            "ticker": "USDC",
+            "name": "USD Coin",
+            "currency": "USD",
+            "logo": "C",
+            "logoBg": "#2775CA",
+            "coingeckoId": "usd-coin",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "btc",
+            "type": "crypto",
+            "ticker": "BTC",
+            "name": "Bitcoin",
+            "currency": "USD",
+            "logo": "₿",
+            "logoBg": "#F7931A",
+            "coingeckoId": "bitcoin",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "eth",
+            "type": "crypto",
+            "ticker": "ETH",
+            "name": "Ethereum",
+            "currency": "USD",
+            "logo": "Ξ",
+            "logoBg": "#627EEA",
+            "coingeckoId": "ethereum",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "nexo-token",
+            "type": "crypto",
+            "ticker": "NEXO",
+            "name": "Nexo",
+            "currency": "USD",
+            "logo": "N",
+            "logoBg": "#1A49BA",
+            "coingeckoId": "nexo",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "ada",
+            "type": "crypto",
+            "ticker": "ADA",
+            "name": "Cardano",
+            "currency": "USD",
+            "logo": "A",
+            "logoBg": "#0033AD",
+            "coingeckoId": "cardano",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "spy-cdr",
+            "type": "cedear",
+            "ticker": "SPY",
+            "name": "SPDR S&P 500 ETF",
+            "currency": "ARS",
+            "logo": "S",
+            "logoBg": "#C0392B",
+            "cedearRatio": 15,
+            "underlyingTicker": "SPY",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "meli-cdr",
+            "type": "cedear",
+            "ticker": "MELI",
+            "name": "MercadoLibre",
+            "currency": "ARS",
+            "logo": "M",
+            "logoBg": "#FFE600",
+            "cedearRatio": 8,
+            "underlyingTicker": "MELI",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        }
+    ],
+    "transactions": [
+        {
+            "id": "init-001",
+            "kind": "buy",
+            "assetId": "usd",
+            "accountId": "cash",
+            "portfolioId": "pf-corto",
+            "qty": 1003,
+            "unitPrice": 1,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-002",
+            "kind": "buy",
+            "assetId": "ars",
+            "accountId": "galicia",
+            "portfolioId": "pf-corto",
+            "qty": 4500000,
+            "unitPrice": 1,
+            "priceCurrency": "ARS",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-003",
+            "kind": "buy",
+            "assetId": "spy-cdr",
+            "accountId": "galicia",
+            "portfolioId": "pf-largo",
+            "qty": 28,
+            "unitPrice": 54950.0,
+            "priceCurrency": "ARS",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-005",
+            "kind": "buy",
+            "assetId": "usd",
+            "accountId": "payoneer",
+            "portfolioId": "pf-corto",
+            "qty": 269,
+            "unitPrice": 1,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-006",
+            "kind": "buy",
+            "assetId": "eur",
+            "accountId": "payoneer",
+            "portfolioId": "pf-corto",
+            "qty": 15,
+            "unitPrice": 1,
+            "priceCurrency": "EUR",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-007",
+            "kind": "buy",
+            "assetId": "usdc",
+            "accountId": "nexo",
+            "portfolioId": "pf-corto",
+            "qty": 5069.110522,
+            "unitPrice": 1,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-008",
+            "kind": "buy",
+            "assetId": "btc",
+            "accountId": "nexo",
+            "portfolioId": "pf-medio",
+            "qty": 0.01301429,
+            "unitPrice": 76948.23,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-009",
+            "kind": "buy",
+            "assetId": "btc",
+            "accountId": "nexo",
+            "portfolioId": "pf-corto",
+            "qty": 0.01348573,
+            "unitPrice": 76948.23,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-010",
+            "kind": "buy",
+            "assetId": "eth",
+            "accountId": "nexo",
+            "portfolioId": "pf-medio",
+            "qty": 0.59517793,
+            "unitPrice": 2116.77,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-011",
+            "kind": "buy",
+            "assetId": "nexo-token",
+            "accountId": "nexo",
+            "portfolioId": "pf-medio",
+            "qty": 656.04319823,
+            "unitPrice": 0.8593,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-012",
+            "kind": "buy",
+            "assetId": "nexo-token",
+            "accountId": "nexo",
+            "portfolioId": "pf-corto",
+            "qty": 736.93558072,
+            "unitPrice": 0.8593,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-013",
+            "kind": "buy",
+            "assetId": "usdt",
+            "accountId": "bingx",
+            "portfolioId": "pf-corto",
+            "qty": 1500,
+            "unitPrice": 1,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-014",
+            "kind": "buy",
+            "assetId": "usdc",
+            "accountId": "bingx",
+            "portfolioId": "pf-corto",
+            "qty": 500,
+            "unitPrice": 1,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-015",
+            "kind": "buy",
+            "assetId": "btc",
+            "accountId": "bingx",
+            "portfolioId": "pf-largo",
+            "qty": 0.01025,
+            "unitPrice": 76948.23,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-016",
+            "kind": "buy",
+            "assetId": "eth",
+            "accountId": "bingx",
+            "portfolioId": "pf-largo",
+            "qty": 0.104,
+            "unitPrice": 2116.77,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-017",
+            "kind": "buy",
+            "assetId": "ada",
+            "accountId": "binance",
+            "portfolioId": "pf-largo",
+            "qty": 1116,
+            "unitPrice": 0.2536,
+            "priceCurrency": "USD",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "init-018",
+            "kind": "buy",
+            "assetId": "meli-cdr",
+            "accountId": "balanz",
+            "portfolioId": "pf-largo",
+            "qty": 18,
+            "unitPrice": 19810.0,
+            "priceCurrency": "ARS",
+            "date": "2026-05-19T12:00:00.000Z",
+            "fxSnapshot": {
+                "ccl": 1400,
+                "mep": 1380,
+                "blue": 1415,
+                "oficial": 1050
+            },
+            "source": "import",
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        }
+    ],
+    "stakingRules": [
+        {
+            "id": "sr-nexo-usdc-flex",
+            "assetId": "usdc",
+            "accountId": "nexo",
+            "portfolioId": "pf-corto",
+            "rewardAssetId": "nexo-token",
+            "apyPct": 7.5,
+            "payoutFrequency": "daily",
+            "startDate": "2026-05-19",
+            "active": true,
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "sr-nexo-btc-fixed",
+            "assetId": "btc",
+            "accountId": "nexo",
+            "portfolioId": "pf-medio",
+            "rewardAssetId": "nexo-token",
+            "apyPct": 5.7,
+            "payoutFrequency": "monthly",
+            "startDate": "2026-05-19",
+            "endDate": "2026-06-12",
+            "active": true,
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "sr-nexo-btc-flex",
+            "assetId": "btc",
+            "accountId": "nexo",
+            "portfolioId": "pf-corto",
+            "rewardAssetId": "nexo-token",
+            "apyPct": 4.7,
+            "payoutFrequency": "daily",
+            "startDate": "2026-05-19",
+            "active": true,
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "sr-nexo-eth-fixed",
+            "assetId": "eth",
+            "accountId": "nexo",
+            "portfolioId": "pf-medio",
+            "rewardAssetId": "nexo-token",
+            "apyPct": 6.25,
+            "payoutFrequency": "monthly",
+            "startDate": "2026-05-19",
+            "endDate": "2026-06-13",
+            "active": true,
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "sr-nexo-nexo-fixed",
+            "assetId": "nexo-token",
+            "accountId": "nexo",
+            "portfolioId": "pf-medio",
+            "apyPct": 9.0,
+            "payoutFrequency": "monthly",
+            "startDate": "2026-05-19",
+            "endDate": "2027-01-10",
+            "active": true,
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        },
+        {
+            "id": "sr-nexo-nexo-flex",
+            "assetId": "nexo-token",
+            "accountId": "nexo",
+            "portfolioId": "pf-corto",
+            "apyPct": 3.0,
+            "payoutFrequency": "daily",
+            "startDate": "2026-05-19",
+            "active": true,
+            "createdAt": "2026-05-19T00:00:00.000Z"
+        }
+    ],
+    "yieldAccruals": [],
+    "watchlist": [],
+    "priceCache": []
+}
