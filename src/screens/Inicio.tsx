@@ -674,22 +674,23 @@ function buildTipoSlices(risk: RiskMetrics | undefined): DistSlice[] {
 
 function buildActivoSlices(
   rows: AssetRowVM[] | undefined,
-  totalValueUSD: number,
 ): DistSlice[] {
-  if (!rows || rows.length === 0 || totalValueUSD <= 0) return [];
-  const sorted = [...rows].sort((a, b) => b.valueUSD - a.valueUSD);
+  if (!rows || rows.length === 0) return [];
+  const sorted = [...rows].sort((a, b) => b.valueDisplay - a.valueDisplay);
+  const total = sorted.reduce((s, r) => s + r.valueDisplay, 0);
+  if (total <= 0) return [];
   const top = sorted.slice(0, 6);
-  const otherValue = sorted.slice(6).reduce((s, r) => s + r.valueUSD, 0);
+  const otherValue = sorted.slice(6).reduce((s, r) => s + r.valueDisplay, 0);
   const slices: DistSlice[] = top.map((r, i) => ({
-    label: r.ticker,
-    pct: (r.valueUSD / totalValueUSD) * 100,
-    valueUSD: r.valueUSD,
+    label: r.asset.ticker,
+    pct: (r.valueDisplay / total) * 100,
+    valueUSD: r.valueDisplay,
     color: DIST_COLORS[i % DIST_COLORS.length],
   }));
   if (otherValue > 0) {
     slices.push({
       label: 'Otros',
-      pct: (otherValue / totalValueUSD) * 100,
+      pct: (otherValue / total) * 100,
       valueUSD: otherValue,
       color: '#71717A',
     });
@@ -822,7 +823,7 @@ function DistributionCard({
 
   const slices = useMemo<DistSlice[]>(() => {
     if (view === 'tipo') return buildTipoSlices(risk);
-    if (view === 'activo') return buildActivoSlices(rows, totalValueUSD);
+    if (view === 'activo') return buildActivoSlices(rows);
     return buildCuentaSlices(holdings, accounts, prices, fx, totalValueUSD);
   }, [view, risk, rows, holdings, accounts, prices, fx, totalValueUSD]);
 
