@@ -70,38 +70,51 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Avanza exactamente un período desde `date` según la frecuencia. */
+function addOnePeriod(
+  date: Date,
+  freq: 'daily' | 'weekly' | 'monthly' | 'yearly',
+): Date {
+  const d = new Date(date);
+  switch (freq) {
+    case 'daily':   d.setDate(d.getDate() + 1); break;
+    case 'weekly':  d.setDate(d.getDate() + 7); break;
+    case 'monthly': d.setMonth(d.getMonth() + 1); break;
+    case 'yearly':  d.setFullYear(d.getFullYear() + 1); break;
+  }
+  return d;
+}
+
 /**
- * Días mínimos que deben pasar desde `lastDate` para que la frecuencia
- * permita acumular.
+ * Calcula hasta qué fecha se puede acumular respetando la frecuencia.
  *
- * - daily   → 1 día
- * - weekly  → 7 días
- * - monthly → días hasta el mismo día del mes siguiente (28–31)
- * - yearly  → días hasta el mismo día del año siguiente (365 o 366)
+ * Para `daily` devuelve el límite duro (hoy o endDate).
+ * Para el resto, avanza de período en período desde `lastDate` hasta
+ * encontrar el último período completo que cabe antes del límite duro.
  *
- * Para monthly/yearly usamos fecha calendario exacta en vez de múltiplos
- * fijos, así el accrual cae el mismo día del mes/año que el inicio.
+ * Retorna `null` si todavía no se cumplió ni un período completo.
+ *
+ * Ejemplo (mensual, lastDate = 12/05, hoy = 20/06):
+ *   → periodEnd = 12/06 ✓  (12/07 > 20/06 → para)
+ *   → acumula del 12/05 al 12/06 y guarda lastAccrualDate = 12/06
  */
-function minDaysForFrequency(
+function accrualCutoff(
   freq: 'daily' | 'weekly' | 'monthly' | 'yearly',
   lastDate: Date,
-): number {
-  switch (freq) {
-    case 'daily':
-      return 1;
-    case 'weekly':
-      return 7;
-    case 'monthly': {
-      const next = new Date(lastDate);
-      next.setMonth(next.getMonth() + 1);
-      return (next.getTime() - lastDate.getTime()) / MS_PER_DAY;
-    }
-    case 'yearly': {
-      const next = new Date(lastDate);
-      next.setFullYear(next.getFullYear() + 1);
-      return (next.getTime() - lastDate.getTime()) / MS_PER_DAY;
-    }
+  hardLimit: Date,
+): Date | null {
+  if (freq === 'daily') return hardLimit;
+
+  let periodEnd = addOnePeriod(lastDate, freq);
+  if (periodEnd > hardLimit) return null; // no llegó ni un período
+
+  // Avanzar al último período completo
+  for (;;) {
+    const next = addOnePeriod(periodEnd, freq);
+    if (next > hardLimit) break;
+    periodEnd = next;
   }
+  return periodEnd;
 }
 
 // ─── Motor principal ───────────────────────────────────────────────────────
@@ -140,22 +153,27 @@ export async function runYieldAccrual(
   for (const rule of rules) {
     if (!rule.active) continue;
 
-    // Fecha hasta la cual acumular.
-    const accrualToStr = rule.endDate && rule.endDate < today ? rule.endDate : today;
-    const accrualTo = new Date(accrualToStr);
+    // Límite duro: hoy o la fecha de fin de la regla, lo que sea antes.
+    const hardLimit = new Date(rule.endDate && rule.endDate < today ? rule.endDate : today);
 
     // Fecha desde la cual acumular (última vez o inicio de la regla).
     const lastStr = rule.lastAccrualDate ?? rule.startDate.slice(0, 10);
     const lastDate = new Date(lastStr);
 
     // Ya acumulamos hasta aquí: nada que hacer.
-    if (lastDate >= accrualTo) continue;
+    if (lastDate >= hardLimit) continue;
 
-    const days = (accrualTo.getTime() - lastDate.getTime()) / MS_PER_DAY;
+    // Calcular hasta qué fecha acumular respetando la frecuencia.
+    // Para daily → hasta el límite duro. Para weekly/monthly/yearly →
+    // hasta el fin del último período completo desde lastDate.
+    const cutoff = accrualCutoff(rule.payoutFrequency, lastDate, hardLimit);
+    if (!cutoff) continue; // no pasó todavía un período completo
 
-    // Respetar la frecuencia de pago: solo acumular cuando pasó el período completo.
-    const minDays = minDaysForFrequency(rule.payoutFrequency, lastDate);
-    if (days < minDays) continue;
+    // Fecha de corte alineada al período (YYYY-MM-DD).
+    const accrualToStr = cutoff.toISOString().slice(0, 10);
+
+    const days = (cutoff.getTime() - lastDate.getTime()) / MS_PER_DAY;
+    if (days < 1) continue;
 
     // Qty del activo stakeado (el capital que produce el rendimiento).
     const held = qtyHeld(txs, rule.assetId, rule.accountId, rule.portfolioId);
