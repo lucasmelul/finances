@@ -2,18 +2,28 @@
  * Cálculo de performance de staking.
  *
  * Para cada `StakingRule` activa, calculamos:
- *  - **expected**: cuánto debería haber rendido entre `startDate` (o
- *    `lastAccrualDate`) y hoy según `apyPct` + `payoutFrequency`.
- *  - **actual**: suma de tx `kind='yield'` del mismo `(asset, account, portfolio)`
- *    en el período.
- *  - **performancePct**: actual / expected × 100. >= 100 → cumplió.
+ *  - **expectedUSD**: cuánto debería haber rendido desde `startDate` hasta hoy
+ *    en USD, usando el precio actual del activo stakeado.
+ *  - **actualUSD**: cuánto rindió realmente (txs kind='yield' atribuidas a esta
+ *    regla mediante el tag `[rule:ID]` en notes), en USD usando el precio del
+ *    activo de recompensa.
+ *  - **performancePct**: actualUSD / expectedUSD × 100. >= 100 → cumplió.
  *
- * Diseño:
- *  - Funciones puras + hook reactivo.
- *  - NO ejecuta accruals automáticos (eso es Phase 2 — necesita un scheduler
- *    cliente que respete tab-visibility). Por ahora solo MIDE el rendimiento.
- *  - Si `lastAccrualDate` está vacío, usamos `startDate` como base.
- *  - Si la regla está inactiva, mostramos 0/0 (último período).
+ * Medición desde startDate (no lastAccrualDate):
+ *  `lastAccrualDate` lo usa el motor de accrual para saber DESDE cuándo acumular.
+ *  Para medir performance, siempre comparamos el total acumulado desde `startDate`
+ *  vs el total esperado en ese mismo período — así el porcentaje es estable y no
+ *  colapsa a 0 inmediatamente después de que el accrual actualiza la fecha.
+ *
+ * Cross-asset:
+ *  `expectedUSD` usa precio del activo stakeado (USDC ≈ $1, BTC ≈ $X).
+ *  `actualUSD` usa precio del activo de recompensa (NEXO ≈ $Y).
+ *  Esto permite comparar manzanas con manzanas aunque los tokens sean distintos.
+ *
+ * Trazabilidad de yields:
+ *  Las txs creadas por el auto-accrual incluyen `[rule:ID]` en notes.
+ *  Solo esas txs se atribuyen a la regla. Txs sin tag no se cuentan (evita
+ *  doble conteo cuando varias reglas producen el mismo activo de recompensa).
  */
 
 import type {
@@ -35,27 +45,28 @@ export interface RulePerformance {
   asset?: Asset;
   /** Asset en el que se reciben las recompensas (puede diferir del asset stakeado). */
   rewardAsset?: Asset;
-  /** Yield esperado en moneda nativa del asset. */
+  /** Yield esperado en unidades del activo STAKEADO. */
   expectedQty: number;
-  /** Yield real cobrado (qty acumulada de tx kind='yield'). */
+  /** Yield real cobrado en unidades del activo de RECOMPENSA. */
   actualQty: number;
-  /** Performance: actual/expected * 100. 0 si expected=0. */
+  /** Performance USD: actualUSD / expectedUSD × 100. 0 si expected=0. */
   performancePct: number;
-  /** Días transcurridos desde el último accrual (o startDate). */
+  /** Días desde el último accrual (o startDate si nunca corrió). */
   daysSinceLastAccrual: number;
-  /** Yield esperado convertido a USD usando precio actual del asset. */
+  /** Yield esperado en USD (usa precio del activo STAKEADO). */
   expectedUSD: number;
+  /** Yield real en USD (usa precio del activo de RECOMPENSA). */
   actualUSD: number;
 }
 
 export interface StakingSummary {
   totalExpectedUSD: number;
   totalActualUSD: number;
-  /** Performance global = actual/expected × 100. */
+  /** Performance global = totalActualUSD / totalExpectedUSD × 100. */
   performancePct: number;
-  /** Reglas con performance > 90% → "rinde como esperado". */
+  /** Reglas con performance ≥ 90% → "rinde como esperado". */
   rulesAboveThreshold: number;
-  /** Reglas con performance < 90% → "rinde menos de lo esperado". */
+  /** Reglas activas con expected > 0 y performance < 90%. */
   rulesBelowThreshold: number;
   rules: RulePerformance[];
 }
@@ -65,16 +76,8 @@ export interface StakingSummary {
 const MS_PER_DAY = 86_400_000;
 
 /**
- * Calcula el yield esperado de UNA regla entre `from` y `to`.
- *
- * Modelo simple: APY anual continuo. Para frequencies daily/weekly/monthly
- * el APY se prorratea linealmente — es la aproximación que usan la mayoría
- * de plataformas (Binance, Lemon).
- *
- * Yield esperado en QTY = qtyHeld × (APY/100) × (días/365)
- *
- * `qtyHeld` se asume constante (la qty actual del scope). Phase 2 mejora:
- * promediar qtyHeld a lo largo del período usando snapshots de tx.
+ * Calcula el yield esperado en qty del activo STAKEADO entre `from` y `to`.
+ * Fórmula: qtyHeld × (APY/100) × (días/365)
  */
 function expectedYieldQty(
   rule: StakingRule,
@@ -83,29 +86,33 @@ function expectedYieldQty(
   toDate: Date,
 ): number {
   const days = Math.max(0, (toDate.getTime() - fromDate.getTime()) / MS_PER_DAY);
-  const apyDecimal = rule.apyPct / 100;
-  return qtyHeld * apyDecimal * (days / 365);
+  return qtyHeld * (rule.apyPct / 100) * (days / 365);
 }
 
 /**
- * Suma actual yields para una regla en el rango `[from, to]`.
- * Cuando la regla tiene `rewardAssetId`, filtra por ese asset en vez del
- * asset stakeado — las tx de yield llegan en el token de recompensa.
+ * Suma yields de una regla específica en `[from, to]`.
+ *
+ * Solo cuenta txs que incluyan `[rule:${ruleId}]` en notes — así distinguimos
+ * yields generados por esta regla de los de otras reglas que producen el mismo
+ * token de recompensa (ej. USDC→NEXO vs BTC→NEXO en la misma cuenta).
+ *
+ * Txs sin tag (importadas manualmente o de versiones anteriores) no se atribuyen
+ * a ninguna regla específica, evitando doble conteo.
  */
 function actualYieldQty(
   rule: StakingRule,
   txs: Transaction[],
   from: Date,
   to: Date,
-  rewardAssetId?: string,
 ): number {
+  const ruleTag = `[rule:${rule.id}]`;
   return txs
     .filter(
       (t) =>
         t.kind === 'yield' &&
-        t.assetId === (rewardAssetId ?? rule.assetId) &&
         t.accountId === rule.accountId &&
-        t.portfolioId === rule.portfolioId,
+        t.portfolioId === rule.portfolioId &&
+        t.notes?.includes(ruleTag),
     )
     .filter((t) => {
       const d = new Date(t.date);
@@ -115,9 +122,7 @@ function actualYieldQty(
 }
 
 /**
- * Helper: qty de un asset en un (asset, account, portfolio) scope sumando
- * todas las txs históricas. No es el FIFO real — es para staking que
- * necesita saber sobre qué cantidad calcula el APY.
+ * Qty corriente de un activo en un scope (asset, account, portfolio).
  */
 function qtyHeldForScope(
   txs: Transaction[],
@@ -161,28 +166,47 @@ export function computeStakingSummary({
     const rewardAsset = rule.rewardAssetId
       ? assets.find((a) => a.id === rule.rewardAssetId)
       : undefined;
-    const lastAccrualOrStart = new Date(rule.lastAccrualDate ?? rule.startDate);
+
+    // ── Ventana de medición ──────────────────────────────────────────────
+    // Siempre desde startDate (no lastAccrualDate) para que la performance
+    // sea estable. lastAccrualDate se usa solo para daysSinceLastAccrual.
+    const measureFrom = new Date(rule.startDate.slice(0, 10));
     const endDate = rule.endDate ? new Date(rule.endDate) : now;
     const effectiveTo = endDate < now ? endDate : now;
+
+    // Días sin acreditar — refleja cuánto tiempo pasó desde el último accrual.
+    const lastAccrualOrStart = new Date(rule.lastAccrualDate ?? rule.startDate);
     const daysSinceLastAccrual = Math.max(
       0,
       (now.getTime() - lastAccrualOrStart.getTime()) / MS_PER_DAY,
     );
 
+    // ── Expected ─────────────────────────────────────────────────────────
     const qtyHeld = qtyHeldForScope(txs, rule.assetId, rule.accountId, rule.portfolioId);
     const expectedQty = rule.active
-      ? expectedYieldQty(rule, qtyHeld, lastAccrualOrStart, effectiveTo)
+      ? expectedYieldQty(rule, qtyHeld, measureFrom, effectiveTo)
       : 0;
-    const actualQty = actualYieldQty(rule, txs, lastAccrualOrStart, effectiveTo, rule.rewardAssetId);
 
-    const priceAssetId = rewardAsset?.id ?? asset?.id;
-    const usdPrice = priceAssetId && prices.get(priceAssetId)
-      ? priceInUSD(prices.get(priceAssetId)!, fx)
+    // expectedUSD: usa precio del activo STAKEADO (es el que genera el yield).
+    const stakedPrice = asset?.id && prices.get(asset.id)
+      ? priceInUSD(prices.get(asset.id)!, fx)
       : 0;
-    const expectedUSD = expectedQty * usdPrice;
-    const actualUSD = actualQty * usdPrice;
-    const performancePct =
-      expectedQty > 0 ? (actualQty / expectedQty) * 100 : 0;
+    const expectedUSD = expectedQty * stakedPrice;
+
+    // ── Actual ───────────────────────────────────────────────────────────
+    // Filtrado por [rule:ID] en notes → atribución exacta por regla.
+    const actualQty = actualYieldQty(rule, txs, measureFrom, effectiveTo);
+
+    // actualUSD: usa precio del activo de RECOMPENSA (lo que realmente se recibió).
+    const rewardPriceAssetId = rewardAsset?.id ?? asset?.id;
+    const rewardPrice = rewardPriceAssetId && prices.get(rewardPriceAssetId)
+      ? priceInUSD(prices.get(rewardPriceAssetId)!, fx)
+      : 0;
+    const actualUSD = actualQty * rewardPrice;
+
+    // ── Performance en USD ────────────────────────────────────────────────
+    // Comparamos USD para que cross-asset (BTC → NEXO) sea significativo.
+    const performancePct = expectedUSD > 0 ? (actualUSD / expectedUSD) * 100 : 0;
 
     return {
       rule,
@@ -205,7 +229,7 @@ export function computeStakingSummary({
     (p) => p.rule.active && p.performancePct >= 90,
   ).length;
   const rulesBelowThreshold = perfs.filter(
-    (p) => p.rule.active && p.expectedQty > 0 && p.performancePct < 90,
+    (p) => p.rule.active && p.expectedUSD > 0 && p.performancePct < 90,
   ).length;
 
   return {

@@ -16,8 +16,14 @@
  *
  * Cross-asset:
  *  Si la regla tiene `rewardAssetId`, la tx de yield se crea con ese assetId
- *  (ej. stakear USDC y recibir NEXO). El assetId stakeado solo sirve para
- *  calcular el qty base.
+ *  (ej. stakear USDC y recibir NEXO). La qty se convierte usando precios de
+ *  mercado: (held × staked_price × APY × days/365) / reward_price.
+ *  Si no hay precios disponibles, se usa la misma unidad como fallback.
+ *
+ * Trazabilidad:
+ *  Cada tx de yield incluye `[rule:ID]` en notes para que `staking.ts` pueda
+ *  atribuir correctamente la performance por regla y evitar doble conteo
+ *  cuando múltiples reglas producen el mismo activo de recompensa.
  *
  * Idempotencia:
  *  Si `lastAccrualDate` ya es hoy, no se hace nada. El hook `useYieldAccrual`
@@ -61,15 +67,6 @@ function todayISO(): string {
 
 // ─── Motor principal ───────────────────────────────────────────────────────
 
-/**
- * Ejecuta el accrual para todas las reglas activas. Llama a esto UNA VEZ
- * por sesión (el hook `useYieldAccrual` lo garantiza con un ref).
- *
- * Por cada regla:
- *  - Calcula días desde `lastAccrualDate` (o `startDate`).
- *  - Si ≥ 1 día y qty > 0, crea la tx de yield y actualiza la fecha.
- *  - Si la regla tiene `endDate` en el pasado, acumula solo hasta ese corte.
- */
 export interface AccrualResult {
   /** Cantidad de txs de yield creadas. */
   txsCreated: number;
@@ -97,6 +94,10 @@ export async function runYieldAccrual(
   const fxSnapshot = await loadLatestFxSnapshot();
   const result: AccrualResult = { txsCreated: 0, details: [] };
 
+  // Cargar precios una sola vez — para conversión cross-asset.
+  const priceRows = await db.priceCache.toArray();
+  const priceByAsset = new Map(priceRows.map((r) => [r.assetId, r.price]));
+
   for (const rule of rules) {
     if (!rule.active) continue;
 
@@ -118,12 +119,29 @@ export async function runYieldAccrual(
     const held = qtyHeld(txs, rule.assetId, rule.accountId, rule.portfolioId);
     if (held <= 0) continue;
 
-    // APY prorrateado por días.
-    const yieldQty = held * (rule.apyPct / 100) * (days / 365);
-    if (yieldQty <= 0) continue;
+    // Yield base en unidades del activo stakeado.
+    const yieldBase = held * (rule.apyPct / 100) * (days / 365);
+    if (yieldBase <= 0) continue;
 
     // El activo de la tx de yield puede ser diferente al stakeado.
     const yieldAssetId = rule.rewardAssetId ?? rule.assetId;
+
+    // Conversión cross-asset: si la recompensa es en otro activo, convertir
+    // usando precios de mercado (yield_USD / reward_price).
+    let yieldQty: number;
+    if (rule.rewardAssetId && rule.rewardAssetId !== rule.assetId) {
+      const stakedPrice = priceByAsset.get(rule.assetId) ?? 0;
+      const rewardPrice = priceByAsset.get(rule.rewardAssetId) ?? 0;
+      if (stakedPrice > 0 && rewardPrice > 0) {
+        const yieldUSD = yieldBase * stakedPrice;
+        yieldQty = yieldUSD / rewardPrice;
+      } else {
+        // Sin precios disponibles: fallback a mismas unidades (impreciso).
+        yieldQty = yieldBase;
+      }
+    } else {
+      yieldQty = yieldBase;
+    }
 
     const now = new Date().toISOString();
     const tx: Transaction = {
@@ -137,7 +155,10 @@ export async function runYieldAccrual(
       unitPrice: 0,
       priceCurrency: 'USD',
       fxSnapshot,
-      notes: `Auto-accrual: ${days.toFixed(1)} días de staking a ${rule.apyPct}% APY`,
+      // [rule:ID] permite a staking.ts atribuir este yield a esta regla
+      // específica, evitando doble conteo cuando varias reglas comparten
+      // el mismo activo de recompensa (ej. múltiples reglas → NEXO).
+      notes: `Auto-accrual [rule:${rule.id}]: ${days.toFixed(1)} días de staking a ${rule.apyPct}% APY`,
       source: 'auto-yield',
       createdAt: now,
     };

@@ -294,17 +294,17 @@ function RuleCard({
           />
           <SmallStat
             label="Cobrado"
-            value={hidden ? '••' : `${fmt(perf.actualQty, 4)} ${assetTicker}`}
+            value={hidden ? '••' : `${fmt(perf.actualQty, 6)} ${perf.rewardAsset?.ticker ?? assetTicker}`}
             sub={hidden ? '' : fmtMoney(perf.actualUSD, 'USD')}
           />
           <SmallStat
-            label="Diff"
+            label="Diff USD"
             value={
               hidden
                 ? '••'
-                : `${perf.actualQty >= perf.expectedQty ? '+' : ''}${fmt(perf.actualQty - perf.expectedQty, 4)}`
+                : `${perf.actualUSD >= perf.expectedUSD ? '+' : ''}${fmtMoney(perf.actualUSD - perf.expectedUSD, 'USD')}`
             }
-            tone={perf.actualQty >= perf.expectedQty ? 'positive' : 'negative'}
+            tone={perf.actualUSD >= perf.expectedUSD ? 'positive' : 'negative'}
           />
         </div>
       )}
