@@ -519,7 +519,7 @@ export async function createStakingRule(
 
 export interface UpdateStakingRuleInput {
   apyPct?: number;
-  payoutFrequency?: 'daily' | 'weekly' | 'monthly';
+  payoutFrequency?: 'daily' | 'weekly' | 'monthly' | 'yearly';
   /** Pasar `null` para eliminar el asset de recompensa (vuelve al mismo activo). */
   rewardAssetId?: string | null;
   endDate?: string | null;
