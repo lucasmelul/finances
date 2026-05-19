@@ -45,7 +45,7 @@ export interface DbExport {
 }
 
 export async function exportDatabase(): Promise<DbExport> {
-  const [accounts, assets, transactions, stakingRules, yieldAccruals, watchlist] =
+  const [accounts, assets, transactions, stakingRules, yieldAccruals, watchlist, priceCache] =
     await Promise.all([
       db.accounts.toArray(),
       db.assets.toArray(),
@@ -53,6 +53,7 @@ export async function exportDatabase(): Promise<DbExport> {
       db.stakingRules.toArray(),
       db.yieldAccruals.toArray(),
       db.watchlist.toArray(),
+      db.priceCache.toArray(),   // incluido para que el Pull muestre valores de inmediato
     ]);
 
   return {
@@ -64,6 +65,7 @@ export async function exportDatabase(): Promise<DbExport> {
     stakingRules,
     yieldAccruals,
     watchlist,
+    priceCache,
   };
 }
 
