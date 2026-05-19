@@ -43,7 +43,7 @@ export function usePollFx() {
     queryKey: ['fx', 'dolarapi'],
     queryFn: fetchDolarRates,
     refetchInterval: FX_REFETCH_MS,
-    refetchIntervalInBackground: false, // pausamos cuando el tab no está visible
+    refetchIntervalInBackground: true, // mobile congela tabs fácilmente; seguimos polleando
     staleTime: FX_REFETCH_MS / 2,
     retry: 2,
   });
@@ -87,13 +87,10 @@ export function usePollCryptoPrices() {
     queryFn: () => fetchCryptoPrices(ids),
     enabled: ids.length > 0,
     refetchInterval: PRICE_REFETCH_MS,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: true,
     staleTime: PRICE_REFETCH_MS / 2,
-    // retry 0 + refetchOnWindowFocus false: con free tier, fallar y reintentar
-    // burst-style empeora el rate limit. Mejor saltar este ciclo y esperar
-    // al próximo refetchInterval.
     retry: false,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {
@@ -192,9 +189,9 @@ export function usePollUnderlyingPrices() {
     queryFn: () => fetchUnderlyingPrices(tickers),
     enabled: tickers.length > 0,
     refetchInterval: UNDERLYING_REFETCH_MS,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: true,
     staleTime: UNDERLYING_REFETCH_MS / 2,
-    retry: 1, // si demo key se rate-limitea, no insistir mucho
+    retry: 1,
   });
 
   useEffect(() => {
