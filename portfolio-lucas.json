@@ -200,7 +200,7 @@
             "currency": "ARS",
             "logo": "M",
             "logoBg": "#FFE600",
-            "cedearRatio": 8,
+            "cedearRatio": 150,
             "underlyingTicker": "MELI",
             "createdAt": "2026-05-19T00:00:00.000Z"
         }
@@ -607,5 +607,27 @@
     ],
     "yieldAccruals": [],
     "watchlist": [],
-    "priceCache": []
+    "priceCache": [
+        {
+            "assetId": "usd",
+            "price": 1.0,
+            "currency": "USD",
+            "fetchedAt": "2026-05-19T00:00:00.000Z",
+            "source": "manual"
+        },
+        {
+            "assetId": "ars",
+            "price": 1.0,
+            "currency": "ARS",
+            "fetchedAt": "2026-05-19T00:00:00.000Z",
+            "source": "manual"
+        },
+        {
+            "assetId": "eur",
+            "price": 1.12,
+            "currency": "EUR",
+            "fetchedAt": "2026-05-19T00:00:00.000Z",
+            "source": "manual"
+        }
+    ]
 }
