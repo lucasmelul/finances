@@ -235,10 +235,24 @@ function OperacionRow({
   const cfg = KIND_CONFIG[tx.kind];
   const decimals = asset?.type === 'crypto' ? 4 : 0;
   const date = new Date(tx.date);
-  const priceText =
-    tx.unitPrice > 0
-      ? `${tx.priceCurrency === 'USD' ? 'US$' : '$'}${fmt(tx.unitPrice, tx.priceCurrency === 'USD' ? 2 : 0)}`
-      : relTime(date);
+
+  // Detectar cambio de cartera para mostrar label y valor correctos.
+  const isBucketTransfer =
+    (tx.kind === 'transfer_out' || tx.kind === 'transfer_in') &&
+    /mover a cartera|desde cartera/i.test(tx.notes ?? '');
+  const label = isBucketTransfer ? 'Cambio de cartera' : cfg.label;
+
+  const priceText = (() => {
+    if (tx.unitPrice <= 0) return relTime(date);
+    const curr = tx.priceCurrency === 'USD' ? 'US$' : '$';
+    const dec = tx.priceCurrency === 'USD' ? 2 : 0;
+    // Transfers: mostrar total en vez de precio unitario.
+    if (tx.kind === 'transfer_in' || tx.kind === 'transfer_out') {
+      return `${curr}${fmt(tx.qty * tx.unitPrice, dec)}`;
+    }
+    return `${curr}${fmt(tx.unitPrice, dec)}`;
+  })();
+
   const bucket = bucketFromPortfolioId(tx.portfolioId);
   const isSeed = tx.id.startsWith('seed-tx-');
 
@@ -260,7 +274,7 @@ function OperacionRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="text-[13px] font-semibold text-text-primary">
-            {cfg.label} · {asset?.ticker ?? '?'}
+            {label} · {asset?.ticker ?? '?'}
           </span>
           {tx.notes && (
             <span className="text-[10px] italic text-text-muted">{tx.notes}</span>
