@@ -8,7 +8,7 @@
  *  3. Versión + info técnica.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAccounts, useTransactions } from '@/lib/db/queries';
@@ -25,8 +25,18 @@ import {
   readJsonFile,
 } from '@/lib/db/portability';
 import { hasAnthropic } from '@/lib/api/anthropic';
+import {
+  clearPat,
+  getLastSync,
+  getStoredPat,
+  pullFromGist,
+  pushToGist,
+  savePat,
+  validatePat,
+} from '@/lib/api/gist';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
+import { Input } from '@/components/ui/Input';
 
 export function Settings() {
   const navigate = useNavigate();
@@ -252,6 +262,9 @@ export function Settings() {
         </div>
       </section>
 
+      {/* Gist Sync */}
+      <GistSyncSection />
+
       {/* API keys */}
       <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
@@ -331,6 +344,204 @@ function Stat({
         {value}
       </div>
     </div>
+  );
+}
+
+// ─── Gist Sync ────────────────────────────────────────────────────────────
+
+function GistSyncSection() {
+  const [pat, setPat] = useState('');
+  const [storedPat, setStoredPat] = useState<string | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    const saved = getStoredPat();
+    setStoredPat(saved);
+    setLastSync(getLastSync());
+  }, []);
+
+  function flash(text: string, ok: boolean) {
+    setMsg({ text, ok });
+    setTimeout(() => setMsg(null), 4000);
+  }
+
+  async function handleConnect() {
+    if (!pat.trim()) return;
+    setBusy(true);
+    try {
+      const login = await validatePat(pat.trim());
+      savePat(pat.trim());
+      setStoredPat(pat.trim());
+      setUsername(login);
+      setPat('');
+      flash(`Conectado como @${login}`, true);
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Error al validar token', false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePush() {
+    if (!storedPat) return;
+    setBusy(true);
+    try {
+      const { exportDatabase } = await import('@/lib/db/portability');
+      const data = await exportDatabase();
+      const { gistUrl } = await pushToGist(storedPat, data);
+      setLastSync(getLastSync());
+      flash(`✓ Sync exitoso`, true);
+      console.info('[gist] Gist URL:', gistUrl);
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Error al subir', false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePull() {
+    if (!storedPat) return;
+    if (!window.confirm('¿Reemplazar todos los datos locales con el Gist remoto?')) return;
+    setBusy(true);
+    try {
+      const { importDatabase } = await import('@/lib/db/portability');
+      const data = await pullFromGist(storedPat);
+      await importDatabase(data, 'replace');
+      setLastSync(getLastSync());
+      flash('✓ Datos sincronizados', true);
+      window.location.reload();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Error al descargar', false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleDisconnect() {
+    clearPat();
+    setStoredPat(null);
+    setUsername(null);
+    setLastSync(null);
+  }
+
+  const maskedPat = storedPat
+    ? `ghp_${'•'.repeat(12)}${storedPat.slice(-4)}`
+    : null;
+
+  return (
+    <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+          Sync entre dispositivos
+        </div>
+        {lastSync && (
+          <span className="font-mono text-[10px] text-text-muted">
+            último sync {lastSync.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        )}
+      </div>
+
+      {msg && (
+        <div
+          className={cn(
+            'mb-2 rounded-md px-3 py-2 text-[12px]',
+            msg.ok
+              ? 'bg-positive/[0.12] text-positive'
+              : 'bg-negative/[0.12] text-negative',
+          )}
+        >
+          {msg.text}
+        </div>
+      )}
+
+      {!storedPat ? (
+        /* ── Sin token: formulario de conexión ── */
+        <div className="flex flex-col gap-2.5">
+          <p className="text-[12px] text-text-muted">
+            Usá un <strong>GitHub Personal Access Token</strong> (scope: <code>gist</code>) para
+            sincronizar el portfolio entre dispositivos sin servidor.{' '}
+            <a
+              href="https://github.com/settings/tokens/new?scopes=gist&description=Portfolio+Tracker"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent underline"
+            >
+              Crear token ↗
+            </a>
+          </p>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="ghp_xxxxxxxxxxxx"
+              value={pat}
+              onChange={(e) => setPat(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+              className="flex-1 font-mono text-[12px]"
+            />
+            <Button
+              variant="primary"
+              size="md"
+              disabled={busy || !pat.trim()}
+              onClick={handleConnect}
+            >
+              Conectar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        /* ── Con token: botones de sync ── */
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-base px-3 py-2">
+            <div>
+              <span className="text-[11px] text-text-muted">Token conectado</span>
+              {username && (
+                <span className="ml-2 text-[11px] font-semibold text-text-primary">
+                  @{username}
+                </span>
+              )}
+              <div className="font-mono text-[10px] text-text-muted">{maskedPat}</div>
+            </div>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              className="text-[11px] text-text-muted underline hover:text-negative"
+            >
+              Desconectar
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="surface"
+              size="md"
+              full
+              disabled={busy}
+              leftIcon="arrow-up"
+              onClick={handlePush}
+            >
+              {busy ? 'Subiendo…' : '↑ Push'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="md"
+              full
+              disabled={busy}
+              leftIcon="arrow-down"
+              onClick={handlePull}
+            >
+              {busy ? 'Descargando…' : '↓ Pull'}
+            </Button>
+          </div>
+          <p className="text-[10px] text-text-muted">
+            <strong>Push</strong>: sube tu portfolio al Gist.
+            <strong> Pull</strong>: baja el Gist y reemplaza los datos locales.
+            Compartí el mismo token en el otro dispositivo.
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
 
