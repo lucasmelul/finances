@@ -365,6 +365,79 @@ export async function deleteTransaction(txId: string): Promise<void> {
   await db.transactions.delete(txId);
 }
 
+// ─── Bucket transfer ───────────────────────────────────────────────────────
+
+export interface CreateBucketTransferInput {
+  assetId: string;
+  accountId: string;
+  qty: number;
+  unitPrice: number;
+  priceCurrency: Currency;
+  fromBucket: PortfolioBucket;
+  toBucket: PortfolioBucket;
+  date?: string;
+  notes?: string;
+}
+
+/**
+ * Mueve un activo entre carteras (buckets) dentro de la misma cuenta.
+ * Crea atómicamente:
+ *  - `transfer_out` del bucket origen
+ *  - `transfer_in`  al bucket destino
+ *
+ * El precio se preserva para que el costo base sea coherente en el FIFO.
+ */
+export async function createBucketTransfer(
+  input: CreateBucketTransferInput,
+): Promise<[Transaction, Transaction]> {
+  if (input.fromBucket === input.toBucket) {
+    throw new Error('Las carteras de origen y destino deben ser distintas.');
+  }
+  if (input.qty <= 0) throw new Error('La cantidad debe ser mayor a 0.');
+  if (input.unitPrice < 0) throw new Error('El precio no puede ser negativo.');
+
+  const now = new Date().toISOString();
+  const date = input.date ?? now;
+  const latestFx = await loadLatestFxSnapshot();
+  const fromPortfolioId = portfolioIdForBucket(input.fromBucket);
+  const toPortfolioId = portfolioIdForBucket(input.toBucket);
+
+  const base = {
+    assetId: input.assetId,
+    accountId: input.accountId,
+    qty: input.qty,
+    unitPrice: input.unitPrice,
+    priceCurrency: input.priceCurrency,
+    date,
+    fxSnapshot: latestFx,
+    source: 'form' as const,
+    createdAt: now,
+  };
+
+  const outTx: Transaction = {
+    id: newId(),
+    kind: 'transfer_out',
+    portfolioId: fromPortfolioId,
+    notes: input.notes ?? `Mover a cartera ${input.toBucket}`,
+    ...base,
+  };
+
+  const inTx: Transaction = {
+    id: newId(),
+    kind: 'transfer_in',
+    portfolioId: toPortfolioId,
+    notes: input.notes ?? `Desde cartera ${input.fromBucket}`,
+    ...base,
+  };
+
+  await db.transaction('rw', db.transactions, async () => {
+    await db.transactions.add(outTx);
+    await db.transactions.add(inTx);
+  });
+
+  return [outTx, inTx];
+}
+
 // ─── Swap ──────────────────────────────────────────────────────────────────
 
 export interface CreateSwapInput {

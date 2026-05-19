@@ -32,6 +32,7 @@ import { CEDEARS } from '@/data/cedears';
 import { hasAI, interpretMessage, type ChatIntent } from '@/lib/api/chat-ai';
 import type { ExtractedTransactionData, ExtractedTransferData } from '@/lib/api/anthropic';
 import { TxForm } from '@/components/forms/TxForm';
+import { BucketTransferForm } from '@/components/forms/BucketTransferForm';
 import type { Account, Asset, PortfolioBucket, Currency, TxKind } from '@/lib/types';
 
 // ─── Modelos del chat ──────────────────────────────────────────────────────
@@ -335,6 +336,8 @@ export function Chat() {
   // Modo del input: 'chat' (default, lenguaje natural) o 'form' (campos
   // estructurados — alternativa cuando el chat falla o se quiere precisión).
   const [mode, setMode] = useState<'chat' | 'form'>('chat');
+  // Sub-modo del form: operación normal o mover entre carteras.
+  const [formSubMode, setFormSubMode] = useState<'tx' | 'bucket'>('tx');
   // Si llegamos con prefill de "Operar TICKER", precargamos el activo en el form.
   const prefillAsset = prefillTicker
     ? assets?.find((a) => a.ticker === prefillTicker)
@@ -764,25 +767,69 @@ export function Chat() {
       {mode === 'form' ? (
         // ─── Form mode: alternativa estructurada ──────────────────────────
         <div className="flex-1 overflow-y-auto pb-3">
-          <TxForm
-            mode={{
-              kind: 'create',
-              initial: prefillAsset ? { assetId: prefillAsset.id } : undefined,
-            }}
-            onSuccess={() => {
-              // Vuelve al chat con un mensaje de confirmación amigable.
-              setMode('chat');
-              setMessages((m) => [
-                ...m,
-                {
-                  id: `m-${Date.now()}`,
-                  role: 'assistant',
-                  text: '✓ Operación creada desde el form.',
-                  timestamp: new Date().toISOString(),
-                },
-              ]);
-            }}
-          />
+          {/* Sub-tabs: Operación / Mover entre carteras */}
+          <div className="mb-3 flex gap-0.5 rounded-lg border border-border-subtle bg-bg-base p-0.5 self-start">
+            <button
+              type="button"
+              onClick={() => setFormSubMode('tx')}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors',
+                formSubMode === 'tx'
+                  ? 'bg-bg-elevated text-text-primary'
+                  : 'text-text-muted hover:text-text-secondary',
+              )}
+            >
+              Operación
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormSubMode('bucket')}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors',
+                formSubMode === 'bucket'
+                  ? 'bg-bg-elevated text-text-primary'
+                  : 'text-text-muted hover:text-text-secondary',
+              )}
+            >
+              Mover entre carteras
+            </button>
+          </div>
+
+          {formSubMode === 'tx' ? (
+            <TxForm
+              mode={{
+                kind: 'create',
+                initial: prefillAsset ? { assetId: prefillAsset.id } : undefined,
+              }}
+              onSuccess={() => {
+                setMode('chat');
+                setMessages((m) => [
+                  ...m,
+                  {
+                    id: `m-${Date.now()}`,
+                    role: 'assistant',
+                    text: '✓ Operación creada desde el form.',
+                    timestamp: new Date().toISOString(),
+                  },
+                ]);
+              }}
+            />
+          ) : (
+            <BucketTransferForm
+              onSuccess={() => {
+                setMode('chat');
+                setMessages((m) => [
+                  ...m,
+                  {
+                    id: `m-${Date.now()}`,
+                    role: 'assistant',
+                    text: '✓ Activo movido entre carteras.',
+                    timestamp: new Date().toISOString(),
+                  },
+                ]);
+              }}
+            />
+          )}
         </div>
       ) : (
         // ─── Chat mode (default) ──────────────────────────────────────────
