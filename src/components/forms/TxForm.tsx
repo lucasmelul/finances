@@ -122,6 +122,37 @@ function convertPrice(price: number, from: Currency, to: Currency, ccl: number):
   return price;
 }
 
+/**
+ * Precio del CDR en la moneda objetivo.
+ *
+ * Para CEDEARs/ETFs con ratio: usa `underlyingUSD` del priceCache más el
+ * CCL y el ratio para obtener el precio real del CDR (no del subyacente).
+ *   CDR_ARS = underlying_USD × CCL / ratio
+ *   CDR_USD = underlying_USD / ratio
+ *
+ * Si no hay underlyingUSD disponible, cae a una conversión simple de moneda.
+ */
+function getCDRPrice(
+  priceEntry: { price: number; currency: string; underlyingUSD?: number },
+  asset: import('@/lib/types').Asset,
+  targetCurrency: Currency,
+  ccl: number,
+): number {
+  if (asset.cedearRatio && priceEntry.underlyingUSD) {
+    // Fórmula canónica: precio del CDR desde el subyacente.
+    if (targetCurrency === 'ARS') {
+      return (priceEntry.underlyingUSD * ccl) / asset.cedearRatio;
+    }
+    if (targetCurrency === 'USD' || targetCurrency === 'USDT') {
+      return priceEntry.underlyingUSD / asset.cedearRatio;
+    }
+  }
+  // Sin ratio o sin underlyingUSD: conversión simple de moneda.
+  const cacheCurrency = priceEntry.currency as Currency;
+  if (cacheCurrency === targetCurrency) return priceEntry.price;
+  return convertPrice(priceEntry.price, cacheCurrency, targetCurrency, ccl);
+}
+
 export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) {
   const accounts = useAccounts();
   const assets = useAssets();
@@ -187,14 +218,13 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
     setValue('priceCurrency', targetCurrency);
 
     if (currentPrice === 0 && priceEntry) {
-      // Precio vacío: pre-llenar desde caché. Convertir si el caché está en otra moneda.
-      const cachePrice = (priceEntry.currency as Currency) !== targetCurrency
-        ? convertPrice(priceEntry.price, priceEntry.currency as Currency, targetCurrency, fx.ccl)
-        : priceEntry.price;
-      const rounded = targetCurrency === 'ARS' ? Math.round(cachePrice) : Number(cachePrice.toFixed(2));
+      // Precio vacío: pre-llenar desde caché usando la fórmula correcta para CEDEARs.
+      // getCDRPrice aplica el ratio si corresponde, evitando mostrar el precio del subyacente.
+      const cdpPrice = getCDRPrice(priceEntry, asset, targetCurrency, fx.ccl);
+      const rounded = targetCurrency === 'ARS' ? Math.round(cdpPrice) : Number(cdpPrice.toFixed(2));
       setValue('unitPrice', rounded, { shouldValidate: true });
     } else if (currentPrice > 0 && currentCurrency !== targetCurrency) {
-      // Ya había un precio en otra moneda (ej. del activo anterior): convertirlo.
+      // Ya había un precio de otro activo: convertirlo con CCL simple (es precio por CDR, no subyacente).
       const converted = convertPrice(currentPrice, currentCurrency, targetCurrency, fx.ccl);
       const rounded = targetCurrency === 'ARS' ? Math.round(converted) : Number(converted.toFixed(2));
       setValue('unitPrice', rounded, { shouldValidate: true });
