@@ -143,6 +143,7 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
     reset,
     control,
     setValue,
+    getValues,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -165,28 +166,30 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
   const watchedAssetId = useWatch({ control, name: 'assetId' });
   const total = Number(watchedQty) * Number(watchedPrice);
 
-  // Auto-fill: cuando el usuario elige un activo y no había precio cargado,
-  // pre-llena con el precio actual del cache + la moneda nativa del activo.
-  // Solo en modo create — al editar respetamos los valores existentes.
+  // Auto-fill: cuando el usuario elige un activo, siempre setea la moneda
+  // nativa del activo (ARS para CEDEARs, USD para crypto, etc.) y pre-llena
+  // el precio si está en 0 y hay datos en caché.
+  // Usamos getValues() en lugar de watchedPrice como dep para que el effect
+  // no se re-ejecute cada vez que el usuario tipea un precio.
   useEffect(() => {
     if (mode.kind !== 'create' || !watchedAssetId || !assets || !prices) return;
     const asset = assets.find((a) => a.id === watchedAssetId);
     if (!asset) return;
+
+    const targetCurrency = asset.currency as Currency;
     const priceEntry = prices.get(asset.id);
-    if (priceEntry && Number(watchedPrice) === 0) {
-      // Hay precio en caché: pre-llenar precio y moneda.
-      // Marcamos autoFilling para que el effect de conversión no actúe.
-      autoFillingRef.current = true;
-      prevCurrencyRef.current = priceEntry.currency as Currency;
+    const currentPrice = Number(getValues('unitPrice') ?? 0);
+
+    // Siempre actualizar la moneda a la nativa del activo al seleccionarlo.
+    autoFillingRef.current = true;
+    prevCurrencyRef.current = targetCurrency;
+    setValue('priceCurrency', targetCurrency);
+
+    // Pre-llenar precio solo si está vacío y hay datos en caché.
+    if (priceEntry && currentPrice === 0) {
       setValue('unitPrice', priceEntry.price, { shouldValidate: true });
-      setValue('priceCurrency', priceEntry.currency as Currency);
-    } else if (!priceEntry && asset.currency) {
-      // Sin precio en caché: defaultear la moneda nativa del activo.
-      autoFillingRef.current = true;
-      prevCurrencyRef.current = asset.currency as Currency;
-      setValue('priceCurrency', asset.currency as Currency);
     }
-  }, [watchedAssetId, assets, prices, mode.kind, setValue, watchedPrice]);
+  }, [watchedAssetId, assets, prices, mode.kind, setValue, getValues]);
 
   // Conversión automática de precio al cambiar la moneda manualmente.
   useEffect(() => {

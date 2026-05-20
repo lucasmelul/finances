@@ -349,8 +349,12 @@ export async function interpretMessage(
   // cuentas. Eso le permite reconocer "AAPL" o "Binance" sin alucinar.
   const tickers = ctx.assets.map((a) => a.ticker).join(', ');
   const accountNames = ctx.accounts.map((a) => a.name).join(', ');
+  const assetCurrencies = ctx.assets.map((a) => `${a.ticker}=${a.currency}`).join(', ');
 
-  const userContext = `Hoy es ${ctx.todayISO}. Tickers cargados: ${tickers}. Cuentas: ${accountNames}.`;
+  const userContext = `Hoy es ${ctx.todayISO}. Tickers cargados: ${tickers}. ` +
+    `Moneda de cotización por ticker: ${assetCurrencies || '(ninguno)'}. ` +
+    `IMPORTANTE: interpretá los precios en la moneda configurada para cada ticker. ` +
+    `Cuentas: ${accountNames}.`;
 
   const response = await c.messages.create({
     model: 'claude-3-5-sonnet-20241022',

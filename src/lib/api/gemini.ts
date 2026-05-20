@@ -279,10 +279,17 @@ export async function interpretMessage(
   const tickers = ctx.assets.map((a) => a.ticker).join(', ');
   const cedearTickers = CEDEARS.map((c) => c.ticker).join(', ');
   const accountNames = ctx.accounts.map((a) => a.name).join(', ');
+  // Monedas de cotización de cada activo cargado — clave para que el AI
+  // interprete correctamente los precios (ej. IBIT=ARS, BTC=USD).
+  const assetCurrencies = ctx.assets
+    .map((a) => `${a.ticker}=${a.currency}`)
+    .join(', ');
   const userContext =
     `Hoy es ${ctx.todayISO}.\n` +
     `Tickers ya cargados por el usuario: ${tickers || '(ninguno)'}.\n` +
-    `CEDEARs disponibles (catálogo BYMA): ${cedearTickers}.\n` +
+    `Moneda de cotización por ticker: ${assetCurrencies || '(ninguno)'}. ` +
+    `IMPORTANTE: si el usuario menciona un precio, interpretalo en la moneda configurada para ese ticker.\n` +
+    `CEDEARs disponibles (catálogo BYMA, cotizan en ARS): ${cedearTickers}.\n` +
     `Cuentas: ${accountNames || '(ninguna)'}.\n\n` +
     `Mensaje del usuario: ${text}`;
 
