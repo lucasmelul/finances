@@ -7,7 +7,7 @@
  * al lector que ya tiene en la cabeza el precio "real" del ticker.
  */
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { fmt, fmtMoney } from '@/lib/format';
