@@ -342,17 +342,38 @@ export function Chat() {
   const prefillAsset = prefillTicker
     ? assets?.find((a) => a.ticker === prefillTicker)
     : undefined;
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: hasAI
-        ? 'Decime qué hacemos. "compré btc ayer", "metí 2k en apple", "cuánto tengo?", "simulame 5k por mes"…'
-        : 'Contame qué operaste. Por ejemplo: "compré 0.05 BTC a 95400 en Binance".',
-      timestamp: new Date().toISOString(),
-    },
-  ]);
+  const WELCOME_MSG: ChatMessage = {
+    id: 'welcome',
+    role: 'assistant',
+    text: hasAI
+      ? 'Decime qué hacemos. "compré btc ayer", "metí 2k en apple", "cuánto tengo?", "simulame 5k por mes"…'
+      : 'Contame qué operaste. Por ejemplo: "compré 0.05 BTC a 95400 en Binance".',
+    timestamp: new Date().toISOString(),
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem('pt_chat_history');
+      if (saved) {
+        const parsed = JSON.parse(saved) as ChatMessage[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // Si el JSON está corrupto, empezamos de cero.
+    }
+    return [WELCOME_MSG];
+  });
+
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Persistir historial en localStorage cada vez que cambian los mensajes.
+  useEffect(() => {
+    try {
+      localStorage.setItem('pt_chat_history', JSON.stringify(messages));
+    } catch {
+      // Ignorar si localStorage está lleno (raro en uso normal).
+    }
+  }, [messages]);
 
   // Auto-scroll al fondo cuando llega un mensaje nuevo.
   useEffect(() => {
@@ -734,10 +755,17 @@ export function Chat() {
     }
   }, [messages]);
 
+  function handleClearHistory() {
+    if (!window.confirm('¿Borrar todo el historial del chat?')) return;
+    localStorage.removeItem('pt_chat_history');
+    setMessages([WELCOME_MSG]);
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* Tabs Chat / Form (SPEC §5.2) */}
-      <div className="flex flex-none gap-1 rounded-[10px] border border-border-subtle bg-bg-surface p-1 self-start mb-2 ml-1">
+      <div className="flex flex-none items-center justify-between mb-2 ml-1">
+      <div className="flex gap-1 rounded-[10px] border border-border-subtle bg-bg-surface p-1 self-start">
         <button
           type="button"
           onClick={() => setMode('chat')}
@@ -762,6 +790,18 @@ export function Chat() {
         >
           Form
         </button>
+      </div>
+        {/* Botón limpiar historial — solo visible en modo chat */}
+        {mode === 'chat' && messages.length > 1 && (
+          <button
+            type="button"
+            onClick={handleClearHistory}
+            className="text-[11px] text-text-muted hover:text-negative transition-colors"
+            title="Borrar historial"
+          >
+            Limpiar
+          </button>
+        )}
       </div>
 
       {mode === 'form' ? (
