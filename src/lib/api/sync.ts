@@ -238,10 +238,13 @@ async function writeUnderlyingsToCache(
 
       let price: number;
       let currency: 'ARS' | 'USD';
-      if (asset.type === 'cedear' && asset.cedearRatio) {
+      if (asset.cedearRatio && asset.currency === 'ARS') {
+        // CEDEAR o ETF con ratio y cotización en ARS (ej. IBIT, SPY en BYMA).
+        // Fórmula: precio_CDR_ARS = subyacente_USD × CCL / ratio
         price = (q.priceUSD * fx.ccl) / asset.cedearRatio;
         currency = 'ARS';
-      } else if (asset.type === 'etf') {
+      } else if (asset.type === 'cedear' || asset.type === 'etf') {
+        // ETF sin ratio o CEDEAR sin ratio configurado: usar precio en USD.
         price = q.priceUSD;
         currency = 'USD';
       } else {
