@@ -166,11 +166,11 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
   const watchedAssetId = useWatch({ control, name: 'assetId' });
   const total = Number(watchedQty) * Number(watchedPrice);
 
-  // Auto-fill: cuando el usuario elige un activo, siempre setea la moneda
-  // nativa del activo (ARS para CEDEARs, USD para crypto, etc.) y pre-llena
-  // el precio si está en 0 y hay datos en caché.
-  // Usamos getValues() en lugar de watchedPrice como dep para que el effect
-  // no se re-ejecute cada vez que el usuario tipea un precio.
+  // Auto-fill: cuando el usuario elige un activo:
+  //  1. Siempre actualiza la moneda a la nativa del activo (ARS para CEDEARs, USD para crypto).
+  //  2. Si el precio está vacío y hay caché, lo pre-llena convirtiendo si el caché
+  //     tiene una moneda diferente a la del activo (ej. caché stale en USD para un CEDEAR).
+  //  3. Si ya había un precio en otra moneda (del activo anterior), lo convierte.
   useEffect(() => {
     if (mode.kind !== 'create' || !watchedAssetId || !assets || !prices) return;
     const asset = assets.find((a) => a.id === watchedAssetId);
@@ -179,17 +179,27 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
     const targetCurrency = asset.currency as Currency;
     const priceEntry = prices.get(asset.id);
     const currentPrice = Number(getValues('unitPrice') ?? 0);
+    const currentCurrency = getValues('priceCurrency') as Currency;
 
-    // Siempre actualizar la moneda a la nativa del activo al seleccionarlo.
+    // Marcar como auto-fill para que el effect de conversión no actúe en paralelo.
     autoFillingRef.current = true;
     prevCurrencyRef.current = targetCurrency;
     setValue('priceCurrency', targetCurrency);
 
-    // Pre-llenar precio solo si está vacío y hay datos en caché.
-    if (priceEntry && currentPrice === 0) {
-      setValue('unitPrice', priceEntry.price, { shouldValidate: true });
+    if (currentPrice === 0 && priceEntry) {
+      // Precio vacío: pre-llenar desde caché. Convertir si el caché está en otra moneda.
+      const cachePrice = (priceEntry.currency as Currency) !== targetCurrency
+        ? convertPrice(priceEntry.price, priceEntry.currency as Currency, targetCurrency, fx.ccl)
+        : priceEntry.price;
+      const rounded = targetCurrency === 'ARS' ? Math.round(cachePrice) : Number(cachePrice.toFixed(2));
+      setValue('unitPrice', rounded, { shouldValidate: true });
+    } else if (currentPrice > 0 && currentCurrency !== targetCurrency) {
+      // Ya había un precio en otra moneda (ej. del activo anterior): convertirlo.
+      const converted = convertPrice(currentPrice, currentCurrency, targetCurrency, fx.ccl);
+      const rounded = targetCurrency === 'ARS' ? Math.round(converted) : Number(converted.toFixed(2));
+      setValue('unitPrice', rounded, { shouldValidate: true });
     }
-  }, [watchedAssetId, assets, prices, mode.kind, setValue, getValues]);
+  }, [watchedAssetId, assets, prices, mode.kind, setValue, getValues, fx.ccl]);
 
   // Conversión automática de precio al cambiar la moneda manualmente.
   useEffect(() => {
