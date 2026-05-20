@@ -16,7 +16,7 @@
  * Compartido entre Chat (Form tab) y EditTxDialog para no duplicar lógica.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -25,7 +25,7 @@ import { Select, type SelectOption } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { fmt } from '@/lib/format';
 import { useAccounts, useAssets } from '@/lib/db/queries';
-import { usePriceMap } from '@/lib/db/derived';
+import { usePriceMap, useFx } from '@/lib/db/derived';
 import { createTransaction, updateTransaction } from '@/lib/db/mutations';
 import type { Currency, PortfolioBucket, Transaction, TxKind } from '@/lib/types';
 
@@ -108,11 +108,31 @@ interface TxFormProps {
   submitLabel?: string;
 }
 
+/** Convierte un precio entre monedas usando el CCL. */
+function convertPrice(price: number, from: Currency, to: Currency, ccl: number): number {
+  if (from === to || price <= 0) return price;
+  // Normalizar a USD primero
+  let usd: number;
+  if (from === 'USD' || from === 'USDT') usd = price;
+  else if (from === 'ARS') usd = price / ccl;
+  else return price; // EUR, BTC: no convertimos por ahora
+  // Convertir de USD al destino
+  if (to === 'USD' || to === 'USDT') return usd;
+  if (to === 'ARS') return usd * ccl;
+  return price;
+}
+
 export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) {
   const accounts = useAccounts();
   const assets = useAssets();
   const prices = usePriceMap();
+  const fx = useFx();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Ref para saber la moneda anterior y poder convertir al cambiarla.
+  const prevCurrencyRef = useRef<Currency | null>(null);
+  // Flag: true cuando el auto-fill cambia la moneda junto al precio
+  // (en ese caso no hay que convertir nada — el precio ya está en la moneda correcta).
+  const autoFillingRef = useRef(false);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -154,14 +174,46 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
     const priceEntry = prices.get(asset.id);
     if (priceEntry && Number(watchedPrice) === 0) {
       // Hay precio en caché: pre-llenar precio y moneda.
+      // Marcamos autoFilling para que el effect de conversión no actúe.
+      autoFillingRef.current = true;
+      prevCurrencyRef.current = priceEntry.currency as Currency;
       setValue('unitPrice', priceEntry.price, { shouldValidate: true });
       setValue('priceCurrency', priceEntry.currency as Currency);
     } else if (!priceEntry && asset.currency) {
-      // Sin precio en caché: al menos usar la moneda nativa del activo
-      // (ej. ARS para CEDEARs) para evitar que el usuario guarde en USD sin querer.
+      // Sin precio en caché: defaultear la moneda nativa del activo.
+      autoFillingRef.current = true;
+      prevCurrencyRef.current = asset.currency as Currency;
       setValue('priceCurrency', asset.currency as Currency);
     }
   }, [watchedAssetId, assets, prices, mode.kind, setValue, watchedPrice]);
+
+  // Conversión automática de precio al cambiar la moneda manualmente.
+  useEffect(() => {
+    const current = watchedCurrency as Currency;
+
+    // Si el auto-fill acaba de cambiar la moneda, no convertimos.
+    if (autoFillingRef.current) {
+      autoFillingRef.current = false;
+      prevCurrencyRef.current = current;
+      return;
+    }
+
+    const prev = prevCurrencyRef.current;
+    prevCurrencyRef.current = current;
+
+    if (!prev || prev === current) return;
+
+    const price = Number(watchedPrice);
+    if (price <= 0) return;
+
+    const converted = convertPrice(price, prev, current, fx.ccl);
+    // Redondear según moneda destino: ARS sin decimales, USD/USDT 2 decimales
+    const rounded = current === 'ARS'
+      ? Math.round(converted)
+      : Number(converted.toFixed(2));
+    setValue('unitPrice', rounded, { shouldValidate: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedCurrency]);
 
   async function onSubmit(values: FormValues) {
     setSubmitError(null);
