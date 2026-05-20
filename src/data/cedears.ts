@@ -82,6 +82,11 @@ export const CEDEARS: readonly CedearSeed[] = [
   { ticker: 'EWZ', underlyingTicker: 'EWZ', name: 'iShares MSCI Brazil', ratio: 5, exchange: 'NYSE' },
   { ticker: 'XLE', underlyingTicker: 'XLE', name: 'Energy Select Sector SPDR', ratio: 4, exchange: 'NYSE' },
   { ticker: 'GLD', underlyingTicker: 'GLD', name: 'SPDR Gold Shares', ratio: 10, exchange: 'NYSE' },
+  // ETFs cripto — cotizan en BYMA como CEDEARs
+  // IBIT: ETF ~$44 USD, CDR BYMA ~$6,515 ARS → ratio = 44×1400/6515 ≈ 9
+  { ticker: 'IBIT', underlyingTicker: 'IBIT', name: 'iShares Bitcoin Trust ETF', ratio: 9, exchange: 'NASDAQ' },
+  { ticker: 'FBTC', underlyingTicker: 'FBTC', name: 'Fidelity Wise Origin Bitcoin Fund', ratio: 9, exchange: 'NYSE' },
+  { ticker: 'ARKB', underlyingTicker: 'ARKB', name: 'ARK 21Shares Bitcoin ETF', ratio: 9, exchange: 'NYSE' },
 
   // Healthcare / pharma
   { ticker: 'UNH', underlyingTicker: 'UNH', name: 'UnitedHealth Group', ratio: 30, exchange: 'NYSE' },
