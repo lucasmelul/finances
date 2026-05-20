@@ -25,7 +25,7 @@ import { Select, type SelectOption } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { fmt } from '@/lib/format';
 import { useAccounts, useAssets } from '@/lib/db/queries';
-import { usePriceMap, useFx } from '@/lib/db/derived';
+import { usePriceMap, useFx, useHoldings } from '@/lib/db/derived';
 import { createTransaction, updateTransaction } from '@/lib/db/mutations';
 import type { Currency, PortfolioBucket, Transaction, TxKind } from '@/lib/types';
 
@@ -108,6 +108,13 @@ interface TxFormProps {
   submitLabel?: string;
 }
 
+const OUTGOING_KINDS: TxKind[] = ['sell', 'transfer_out', 'fee'];
+
+function bucketFromPortfolioId(portfolioId: string): PortfolioBucket {
+  const m = portfolioId.match(/^pf-(corto|medio|largo|trade)$/);
+  return m ? (m[1] as PortfolioBucket) : 'largo';
+}
+
 /** Convierte un precio entre monedas usando el CCL. */
 function convertPrice(price: number, from: Currency, to: Currency, ccl: number): number {
   if (from === to || price <= 0) return price;
@@ -158,6 +165,7 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
   const assets = useAssets();
   const prices = usePriceMap();
   const fx = useFx();
+  const holdings = useHoldings();
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Ref para saber la moneda anterior y poder convertir al cambiarla.
   // Se inicializa con la moneda default del form para que el primer cambio funcione.
@@ -195,7 +203,35 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
   const watchedPrice = useWatch({ control, name: 'unitPrice' }) ?? 0;
   const watchedCurrency = useWatch({ control, name: 'priceCurrency' }) ?? 'USD';
   const watchedAssetId = useWatch({ control, name: 'assetId' });
+  const watchedAccountId = useWatch({ control, name: 'accountId' });
+  const watchedKind = useWatch({ control, name: 'kind' }) as TxKind | undefined;
   const total = Number(watchedQty) * Number(watchedPrice);
+
+  // Para operaciones de salida (sell / transfer_out / fee), filtrar las carteras
+  // donde el activo+cuenta tiene saldo real. Así el usuario no puede retirar
+  // de una cartera que no tiene fondos.
+  const isOutgoing = watchedKind && OUTGOING_KINDS.includes(watchedKind);
+  const bucketOptions: SelectOption[] = (() => {
+    if (!isOutgoing || !watchedAssetId || !watchedAccountId || !holdings) {
+      return BUCKET_OPTIONS;
+    }
+    // Holdings del scope (activo + cuenta) — una entrada por portfolio.
+    const scopeHoldings = holdings.filter(
+      (h) => h.assetId === watchedAssetId && h.accountId === watchedAccountId && h.qty > 0,
+    );
+    if (scopeHoldings.length === 0) return BUCKET_OPTIONS; // sin datos, mostrar todo
+    // Armar opciones con la cantidad disponible como hint.
+    return scopeHoldings.map((h) => {
+      const bucket = bucketFromPortfolioId(h.portfolioId);
+      const label = BUCKET_OPTIONS.find((b) => b.value === bucket)?.label ?? bucket;
+      const asset = assets?.find((a) => a.id === h.assetId);
+      const decimals = asset?.type === 'crypto' ? 4 : 2;
+      return {
+        value: bucket,
+        label: `${label} · ${fmt(h.qty, decimals)} disponibles`,
+      };
+    });
+  })();
 
   // Auto-fill: cuando el usuario elige un activo:
   //  1. Siempre actualiza la moneda a la nativa del activo (ARS para CEDEARs, USD para crypto).
@@ -230,6 +266,13 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
       setValue('unitPrice', rounded, { shouldValidate: true });
     }
   }, [watchedAssetId, assets, prices, mode.kind, setValue, getValues, fx.ccl]);
+
+  // Auto-seleccionar cartera si solo hay una con saldo (operaciones de salida).
+  useEffect(() => {
+    if (!isOutgoing || bucketOptions.length !== 1) return;
+    const onlyBucket = bucketOptions[0].value as PortfolioBucket;
+    setValue('bucket', onlyBucket);
+  }, [isOutgoing, bucketOptions.length, bucketOptions, setValue]);
 
   // Conversión automática de precio al cambiar la moneda manualmente.
   useEffect(() => {
@@ -320,8 +363,14 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
         <FieldGroup label="Tipo" error={errors.kind?.message}>
           <Select options={KIND_OPTIONS} {...register('kind')} />
         </FieldGroup>
-        <FieldGroup label="Cartera" error={errors.bucket?.message}>
-          <Select options={BUCKET_OPTIONS} {...register('bucket')} />
+        <FieldGroup
+          label="Cartera"
+          hint={isOutgoing && bucketOptions.length < BUCKET_OPTIONS.length
+            ? 'Solo carteras con saldo disponible'
+            : undefined}
+          error={errors.bucket?.message}
+        >
+          <Select options={bucketOptions} {...register('bucket')} />
         </FieldGroup>
       </div>
 
@@ -404,18 +453,23 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
 
 function FieldGroup({
   label,
+  hint,
   error,
   children,
 }: {
   label: string;
+  hint?: string;
   error?: string;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-text-secondary">
-        {label}
-      </label>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <label className="block text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+          {label}
+        </label>
+        {hint && <span className="text-[10px] text-accent">{hint}</span>}
+      </div>
       {children}
       {error && <p className="mt-1 text-[11px] text-negative">{error}</p>}
     </div>
