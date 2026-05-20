@@ -1,8 +1,8 @@
 /**
  * Modal para editar los metadatos editables de un activo.
  *
- * Campos editables: nombre, ratio CEDEAR, ticker subyacente, coingeckoId, ISIN.
- * Inmutables: ticker, tipo, moneda (forman el índice único [type+ticker]).
+ * Campos editables: nombre, moneda, ratio CEDEAR, ticker subyacente,
+ * coingeckoId, ISIN.
  */
 
 import { useId, useState } from 'react';
@@ -11,12 +11,22 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Dialog, DialogContent } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
+import { Select, type SelectOption } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { updateAsset } from '@/lib/db/mutations';
 import type { Asset } from '@/lib/types';
 
+const CURRENCY_OPTIONS: SelectOption[] = [
+  { value: 'ARS', label: 'ARS — Peso argentino' },
+  { value: 'USD', label: 'USD — Dólar' },
+  { value: 'USDT', label: 'USDT — Tether' },
+  { value: 'EUR', label: 'EUR — Euro' },
+  { value: 'BTC', label: 'BTC — Bitcoin' },
+];
+
 const schema = z.object({
   name: z.string().min(1, 'Requerido'),
+  currency: z.enum(['ARS', 'USD', 'USDT', 'EUR', 'BTC']),
   cedearRatio: z.coerce.number().positive().optional().or(z.literal('')),
   underlyingTicker: z.string().optional(),
   coingeckoId: z.string().optional(),
@@ -51,6 +61,7 @@ export function EditarActivoDialog({ asset, open, onOpenChange }: EditarActivoDi
     resolver: zodResolver(schema),
     defaultValues: {
       name: asset.name,
+      currency: asset.currency as 'ARS' | 'USD' | 'USDT' | 'EUR' | 'BTC',
       cedearRatio: asset.cedearRatio ?? '',
       underlyingTicker: asset.underlyingTicker ?? '',
       coingeckoId: asset.coingeckoId ?? '',
@@ -63,6 +74,7 @@ export function EditarActivoDialog({ asset, open, onOpenChange }: EditarActivoDi
     try {
       await updateAsset(asset.id, {
         name: values.name,
+        currency: values.currency,
         cedearRatio: values.cedearRatio ? Number(values.cedearRatio) : undefined,
         underlyingTicker: values.underlyingTicker || undefined,
         coingeckoId: values.coingeckoId || undefined,
@@ -93,12 +105,18 @@ export function EditarActivoDialog({ asset, open, onOpenChange }: EditarActivoDi
             <span className="font-semibold text-text-primary">{asset.ticker}</span>
             <span className="ml-3 text-text-muted">Tipo:</span>
             <span className="font-semibold text-text-primary capitalize">{asset.type}</span>
-            <span className="ml-3 text-text-muted">Moneda:</span>
-            <span className="font-semibold text-text-primary">{asset.currency}</span>
           </div>
 
           <Field label="Nombre" error={errors.name?.message}>
             <Input id={nameId} {...register('name')} />
+          </Field>
+
+          <Field
+            label="Moneda de cotización"
+            hint={isCedear ? 'Para CEDEARs debe ser ARS — cotización en BYMA en pesos.' : undefined}
+            error={errors.currency?.message}
+          >
+            <Select options={CURRENCY_OPTIONS} {...register('currency')} />
           </Field>
 
           {isCedear && (

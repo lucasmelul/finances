@@ -153,8 +153,13 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
     if (!asset) return;
     const priceEntry = prices.get(asset.id);
     if (priceEntry && Number(watchedPrice) === 0) {
+      // Hay precio en caché: pre-llenar precio y moneda.
       setValue('unitPrice', priceEntry.price, { shouldValidate: true });
       setValue('priceCurrency', priceEntry.currency as Currency);
+    } else if (!priceEntry && asset.currency) {
+      // Sin precio en caché: al menos usar la moneda nativa del activo
+      // (ej. ARS para CEDEARs) para evitar que el usuario guarde en USD sin querer.
+      setValue('priceCurrency', asset.currency as Currency);
     }
   }, [watchedAssetId, assets, prices, mode.kind, setValue, watchedPrice]);
 

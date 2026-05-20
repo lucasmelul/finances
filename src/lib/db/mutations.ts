@@ -367,6 +367,8 @@ export interface UpdateAssetInput {
   cedearRatio?: number;
   underlyingTicker?: string;
   isin?: string;
+  /** Moneda nativa de cotización. Para CEDEARs debe ser ARS. */
+  currency?: Currency;
 }
 
 /**
@@ -383,6 +385,7 @@ export async function updateAsset(assetId: string, patch: UpdateAssetInput): Pro
   if (patch.cedearRatio !== undefined) update.cedearRatio = patch.cedearRatio;
   if (patch.underlyingTicker !== undefined) update.underlyingTicker = patch.underlyingTicker || undefined;
   if (patch.isin !== undefined) update.isin = patch.isin || undefined;
+  if (patch.currency !== undefined) update.currency = patch.currency;
   if (Object.keys(update).length === 0) return;
   await db.assets.update(assetId, update);
 }
