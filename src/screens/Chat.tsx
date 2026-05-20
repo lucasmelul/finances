@@ -763,8 +763,8 @@ export function Chat() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Tabs Chat / Form (SPEC §5.2) */}
-      <div className="flex flex-none items-center justify-between mb-2 ml-1">
+      {/* Tabs Chat / Form — sticky para que siempre sean accesibles al scrollear */}
+      <div className="flex flex-none items-center justify-between mb-2 sticky top-0 z-10 bg-bg-base pb-1 pt-0.5">
       <div className="flex gap-1 rounded-[10px] border border-border-subtle bg-bg-surface p-1 self-start">
         <button
           type="button"

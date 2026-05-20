@@ -51,14 +51,16 @@ export function Operaciones() {
   const filteredTxs = useMemo(() => {
     if (!transactions || !assets) return undefined;
     const q = search.trim().toUpperCase();
-    return transactions.filter((tx) => {
-      if (filter !== 'all' && tx.kind !== filter) return false;
-      if (q) {
-        const asset = assets.find((a) => a.id === tx.assetId);
-        if (!asset || !asset.ticker.toUpperCase().includes(q)) return false;
-      }
-      return true;
-    });
+    return transactions
+      .filter((tx) => {
+        if (filter !== 'all' && tx.kind !== filter) return false;
+        if (q) {
+          const asset = assets.find((a) => a.id === tx.assetId);
+          if (!asset || !asset.ticker.toUpperCase().includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions, assets, filter, search]);
 
   async function handleConfirmDelete() {
