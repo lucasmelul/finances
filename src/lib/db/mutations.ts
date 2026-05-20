@@ -358,6 +358,35 @@ export async function createAsset(input: CreateAssetInput): Promise<Asset> {
   return asset;
 }
 
+export interface UpdateAssetInput {
+  name?: string;
+  logo?: string;
+  logoBg?: string;
+  coingeckoId?: string;
+  /** Para CEDEARs: cuántos CDRs equivalen a 1 acción subyacente. */
+  cedearRatio?: number;
+  underlyingTicker?: string;
+  isin?: string;
+}
+
+/**
+ * Actualiza campos editables de un asset.
+ * NO permite cambiar `ticker`, `type` ni `currency` — esos son inmutables
+ * porque forman parte del índice único `[type+ticker]`.
+ */
+export async function updateAsset(assetId: string, patch: UpdateAssetInput): Promise<void> {
+  const update: Partial<Asset> = {};
+  if (patch.name !== undefined) update.name = patch.name.trim() || undefined;
+  if (patch.logo !== undefined) update.logo = patch.logo;
+  if (patch.logoBg !== undefined) update.logoBg = patch.logoBg;
+  if (patch.coingeckoId !== undefined) update.coingeckoId = patch.coingeckoId || undefined;
+  if (patch.cedearRatio !== undefined) update.cedearRatio = patch.cedearRatio;
+  if (patch.underlyingTicker !== undefined) update.underlyingTicker = patch.underlyingTicker || undefined;
+  if (patch.isin !== undefined) update.isin = patch.isin || undefined;
+  if (Object.keys(update).length === 0) return;
+  await db.assets.update(assetId, update);
+}
+
 // ─── Helpers de testing / dev ──────────────────────────────────────────────
 
 /** Borra una transacción por ID. UI: botón "deshacer" en el último confirm. */

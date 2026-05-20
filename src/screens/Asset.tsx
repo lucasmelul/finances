@@ -7,7 +7,7 @@
  * al lector que ya tiene en la cabeza el precio "real" del ticker.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { fmt, fmtMoney } from '@/lib/format';
@@ -38,6 +38,7 @@ import { TxRow, type TxRowVM } from '@/components/composite/TxRow';
 // diseño y se mostraban como S/R reales. Ahora usamos `useAutoSR` que computa
 // desde el histórico real de CoinGecko (cripto). Para CEDEAR/bono/etf
 // devuelve null → no mostramos bandas en lugar de inventar.
+import { EditarActivoDialog } from '@/components/dialogs/EditarActivoDialog';
 import type { PortfolioBucket, Transaction, Account, Asset } from '@/lib/types';
 
 const TABS = ['precio', 'holdings', 'operaciones', 'info'] as const;
@@ -58,6 +59,7 @@ export function AssetDetail() {
   const fx = useFx();
   const [tab, setTab] = useState<Tab>('precio');
   const [period, setPeriod] = useState<ChartPeriod>('1M');
+  const [editAssetOpen, setEditAssetOpen] = useState(false);
 
   const asset = useMemo(
     () => assets?.find((a) => a.id === assetId),
@@ -460,7 +462,37 @@ export function AssetDetail() {
                   ? 'Bono soberano, cotiza en dólares.'
                   : 'Instrumento financiero.'}
           </p>
+          {asset.cedearRatio && (
+            <p className="mt-1 text-text-muted">
+              Ratio: <strong className="text-text-primary">{asset.cedearRatio}:1</strong>
+              {asset.underlyingTicker && (
+                <> · Subyacente: <strong className="text-text-primary">{asset.underlyingTicker}</strong></>
+              )}
+            </p>
+          )}
+          {asset.coingeckoId && (
+            <p className="mt-1 text-text-muted">
+              CoinGecko: <strong className="text-text-primary">{asset.coingeckoId}</strong>
+            </p>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon="edit"
+            className="mt-3"
+            onClick={() => setEditAssetOpen(true)}
+          >
+            Editar datos del activo
+          </Button>
         </section>
+      )}
+
+      {editAssetOpen && (
+        <EditarActivoDialog
+          asset={asset}
+          open={editAssetOpen}
+          onOpenChange={setEditAssetOpen}
+        />
       )}
 
       <Button
