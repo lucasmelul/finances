@@ -129,7 +129,8 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
   const fx = useFx();
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Ref para saber la moneda anterior y poder convertir al cambiarla.
-  const prevCurrencyRef = useRef<Currency | null>(null);
+  // Se inicializa con la moneda default del form para que el primer cambio funcione.
+  const prevCurrencyRef = useRef<Currency>(mode.initial?.priceCurrency ?? 'USD');
   // Flag: true cuando el auto-fill cambia la moneda junto al precio
   // (en ese caso no hay que convertir nada — el precio ya está en la moneda correcta).
   const autoFillingRef = useRef(false);
@@ -201,7 +202,7 @@ export function TxForm({ mode, onSuccess, onCancel, submitLabel }: TxFormProps) 
     const prev = prevCurrencyRef.current;
     prevCurrencyRef.current = current;
 
-    if (!prev || prev === current) return;
+    if (prev === current) return;
 
     const price = Number(watchedPrice);
     if (price <= 0) return;
