@@ -202,6 +202,56 @@ export function Reconciliar() {
 
   // ─── Guards ──────────────────────────────────────────────────────────────
 
+  // Entrada desde el menú (sin cuenta en la URL): elegí qué cuenta reconciliar.
+  if (!accountId) {
+    return (
+      <div className="flex flex-col gap-3.5 pb-6">
+        <div>
+          <h1 className="text-[22px] font-semibold tracking-tight text-text-primary">
+            Reconciliar saldo
+          </h1>
+          <p className="text-[12px] text-text-secondary">
+            Elegí la cuenta cuyos saldos querés actualizar.
+          </p>
+        </div>
+        <section className="overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface">
+          {accounts?.filter((a) => !a.archivedAt).length === 0 && (
+            <div className="px-4 py-6 text-center text-[13px] text-text-muted">
+              No tenés cuentas todavía. Creá una desde Cuentas.
+            </div>
+          )}
+          {accounts
+            ?.filter((a) => !a.archivedAt)
+            .map((a, i, arr) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => navigate(`/reconciliar/${a.id}`)}
+                className={cn(
+                  'flex w-full items-center gap-3 px-3.5 py-3.5 text-left transition-colors hover:bg-bg-elevated',
+                  i < arr.length - 1 && 'border-b border-border-subtle',
+                )}
+              >
+                <div
+                  className={cn(
+                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]',
+                    a.tag === 'A' ? 'bg-info/[0.14] text-info' : 'bg-warning/[0.14] text-warning',
+                  )}
+                >
+                  <Icon name="wallet" size={18} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-text-primary">{a.name}</div>
+                  <div className="mt-0.5 text-[11px] capitalize text-text-secondary">{a.kind}</div>
+                </div>
+                <Icon name="arrow-right" size={16} className="text-text-muted" />
+              </button>
+            ))}
+        </section>
+      </div>
+    );
+  }
+
   if (accounts && !account) {
     return (
       <div className="py-10 text-center text-sm text-text-muted">

@@ -202,9 +202,10 @@ export function Cuentas() {
                 type="button"
                 aria-label="Reconciliar saldo"
                 onClick={() => navigate(`/reconciliar/${acc.id}`)}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg-elevated hover:text-text-primary"
+                className="flex h-7 shrink-0 items-center gap-1 rounded-lg bg-accent/[0.14] px-2 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20"
               >
-                <Icon name="refresh" size={14} />
+                <Icon name="refresh" size={13} />
+                Saldos
               </button>
               <button
                 type="button"

@@ -25,6 +25,7 @@ function deriveScreen(pathname: string): { key: string; title: string } {
   if (pathname.startsWith('/carteras'))     return { key: 'carteras',    title: 'Carteras' };
   if (pathname.startsWith('/asset'))        return { key: 'inicio',      title: 'Activo' };
   if (pathname.startsWith('/oportunidades')) return { key: 'oport',      title: 'Oportunidades' };
+  if (pathname.startsWith('/reconciliar'))  return { key: 'mas',         title: 'Reconciliar' };
   if (pathname.startsWith('/cuentas'))      return { key: 'cuentas',     title: 'Cuentas' };
   if (pathname.startsWith('/chat'))         return { key: 'chat',        title: 'Operar' };
   if (pathname.startsWith('/operaciones'))  return { key: 'mas',         title: 'Operaciones' };
@@ -38,6 +39,7 @@ function deriveScreen(pathname: string): { key: string; title: string } {
 
 /** Pantallas disponibles en el sheet "Más". */
 const MAS_ITEMS: Array<{ icon: IconName; label: string; path: string }> = [
+  { icon: 'refresh',    label: 'Reconciliar',    path: '/reconciliar' },
   { icon: 'list',       label: 'Operaciones',   path: '/operaciones' },
   { icon: 'zap',        label: 'Staking',        path: '/staking' },
   { icon: 'trend-up',   label: 'Oportunidades',  path: '/oportunidades' },

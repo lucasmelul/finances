@@ -31,6 +31,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { id: 'operaciones', icon: 'list',     label: 'Operaciones',   path: '/operaciones' },
   { id: 'oport',       icon: 'trend-up', label: 'Oportunidades', path: '/oportunidades' },
   { id: 'cuentas',     icon: 'wallet',   label: 'Cuentas',       path: '/cuentas' },
+  { id: 'reconciliar', icon: 'refresh',  label: 'Reconciliar',   path: '/reconciliar' },
   { id: 'staking',     icon: 'zap',      label: 'Staking',       path: '/staking' },
   { id: 'insights',    icon: 'spark',    label: 'Insights',      path: '/insights' },
   { id: 'simulador',   icon: 'chart',    label: 'Simulador',     path: '/simulador' },
@@ -44,6 +45,7 @@ function deriveActiveNav(pathname: string): string {
   if (pathname.startsWith('/asset'))       return 'inicio';
   if (pathname.startsWith('/oportunidades')) return 'oport';
   if (pathname.startsWith('/operaciones')) return 'operaciones';
+  if (pathname.startsWith('/reconciliar')) return 'reconciliar';
   if (pathname.startsWith('/cuentas'))     return 'cuentas';
   if (pathname.startsWith('/chat'))        return 'chat';
   if (pathname.startsWith('/simulador'))   return 'simulador';

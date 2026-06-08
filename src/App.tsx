@@ -42,6 +42,7 @@ export default function App() {
           <Route path="/asset/:assetId" element={<AssetDetail />} />
           <Route path="/oportunidades" element={<Oportunidades />} />
           <Route path="/cuentas" element={<Cuentas />} />
+          <Route path="/reconciliar" element={<Reconciliar />} />
           <Route path="/reconciliar/:accountId" element={<Reconciliar />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/operaciones" element={<Operaciones />} />
