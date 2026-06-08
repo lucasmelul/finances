@@ -8,6 +8,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { fmtMoney } from '@/lib/format';
 import { useUIStore } from '@/lib/store';
@@ -39,6 +40,7 @@ const ACCOUNT_ICON: Record<AccountKind, IconName> = {
 };
 
 export function Cuentas() {
+  const navigate = useNavigate();
   const { displayCurrency, hidden } = useUIStore();
   const accounts = useAccounts();
   const holdings = useHoldings();
@@ -196,6 +198,14 @@ export function Cuentas() {
                   </div>
                 )}
               </div>
+              <button
+                type="button"
+                aria-label="Reconciliar saldo"
+                onClick={() => navigate(`/reconciliar/${acc.id}`)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg-elevated hover:text-text-primary"
+              >
+                <Icon name="refresh" size={14} />
+              </button>
               <button
                 type="button"
                 aria-label="Retirar / Transferir"

@@ -125,7 +125,7 @@ export interface Transaction {
   feeCurrency?: Currency;
   fxSnapshot?: FxSnapshot;
   notes?: string;
-  source: 'form' | 'chat' | 'auto-yield' | 'import';
+  source: 'form' | 'chat' | 'auto-yield' | 'import' | 'reconcile';
   createdAt: string;
 }
 

@@ -557,6 +557,147 @@ export async function createSwap(
   return [sellTx, buyTx];
 }
 
+// ─── Reconciliación de saldos ───────────────────────────────────────────────
+
+/**
+ * Un movimiento ya resuelto por `lib/reconcile.ts`, listo para persistir.
+ *  - `swap`     → genera `sell fromAsset` + `buy toAsset` (precio implícito).
+ *  - `deposit`  → `transfer_in` (subió un saldo sin contraparte).
+ *  - `withdraw` → `transfer_out` (bajó un saldo sin contraparte).
+ */
+export interface ReconcileMoveInput {
+  kind: 'swap' | 'deposit' | 'withdraw';
+  // swap
+  fromAssetId?: string;
+  fromQty?: number;
+  /** Precio USD del activo entregado (1 para stables). */
+  fromPriceUSD?: number;
+  toAssetId?: string;
+  toQty?: number;
+  // deposit / withdraw
+  assetId?: string;
+  qty?: number;
+  priceUSD?: number;
+}
+
+export interface CreateReconciliationInput {
+  accountId: string;
+  /** Cartera fija para TODA la reconciliación (decisión de diseño). */
+  bucket?: PortfolioBucket;
+  portfolioId?: string;
+  moves: ReconcileMoveInput[];
+  date?: string;
+}
+
+/**
+ * Persiste una reconciliación de saldos como un conjunto de transacciones
+ * atómicas. Todas llevan `source:'reconcile'` y el tag `[recon:UUID]` en
+ * `notes` para poder agruparlas y deshacerlas (ver `deleteReconciliation`).
+ *
+ * No usa `createTransaction` para no romper la atomicidad (una sola
+ * `db.transaction`); valida lo mínimo inline.
+ */
+export async function createReconciliation(
+  input: CreateReconciliationInput,
+): Promise<{ reconId: string; txs: Transaction[] }> {
+  const portfolioId =
+    input.portfolioId ??
+    (input.bucket ? portfolioIdForBucket(input.bucket) : undefined);
+  if (!portfolioId) {
+    throw new Error('createReconciliation: requiere `portfolioId` o `bucket`.');
+  }
+  if (input.moves.length === 0) {
+    throw new Error('No hay cambios para reconciliar.');
+  }
+
+  const now = new Date().toISOString();
+  const date = input.date ?? now;
+  const latestFx = await loadLatestFxSnapshot();
+  const reconId = newId();
+  const tag = `[recon:${reconId}]`;
+
+  const common = {
+    accountId: input.accountId,
+    portfolioId,
+    priceCurrency: 'USD' as const,
+    date,
+    fxSnapshot: latestFx,
+    source: 'reconcile' as const,
+    createdAt: now,
+  };
+
+  const txs: Transaction[] = [];
+
+  for (const m of input.moves) {
+    if (m.kind === 'swap') {
+      if (!m.fromAssetId || !m.toAssetId || !m.fromQty || !m.toQty) continue;
+      if (m.fromQty <= 0 || m.toQty <= 0) continue;
+      const fromPrice = m.fromPriceUSD ?? 1;
+      const toPrice = (m.fromQty * fromPrice) / m.toQty;
+      txs.push({
+        id: newId(),
+        kind: 'sell',
+        assetId: m.fromAssetId,
+        qty: m.fromQty,
+        unitPrice: fromPrice,
+        notes: `Reconciliación (entregado) ${tag}`,
+        ...common,
+      });
+      txs.push({
+        id: newId(),
+        kind: 'buy',
+        assetId: m.toAssetId,
+        qty: m.toQty,
+        unitPrice: toPrice,
+        notes: `Reconciliación (recibido) ${tag}`,
+        ...common,
+      });
+    } else if (m.kind === 'deposit') {
+      if (!m.assetId || !m.qty || m.qty <= 0) continue;
+      txs.push({
+        id: newId(),
+        kind: 'transfer_in',
+        assetId: m.assetId,
+        qty: m.qty,
+        unitPrice: m.priceUSD ?? 0,
+        notes: `Reconciliación (ajuste +) ${tag}`,
+        ...common,
+      });
+    } else {
+      if (!m.assetId || !m.qty || m.qty <= 0) continue;
+      txs.push({
+        id: newId(),
+        kind: 'transfer_out',
+        assetId: m.assetId,
+        qty: m.qty,
+        unitPrice: m.priceUSD ?? 0,
+        notes: `Reconciliación (ajuste −) ${tag}`,
+        ...common,
+      });
+    }
+  }
+
+  if (txs.length === 0) {
+    throw new Error('No hay cambios válidos para reconciliar.');
+  }
+
+  await db.transaction('rw', db.transactions, async () => {
+    for (const tx of txs) await db.transactions.add(tx);
+  });
+
+  return { reconId, txs };
+}
+
+/** Borra todas las txs de una reconciliación (para el "deshacer"). */
+export async function deleteReconciliation(reconId: string): Promise<void> {
+  const tag = `[recon:${reconId}]`;
+  const all = await db.transactions.toArray();
+  const ids = all.filter((t) => t.notes?.includes(tag)).map((t) => t.id);
+  await db.transaction('rw', db.transactions, async () => {
+    for (const id of ids) await db.transactions.delete(id);
+  });
+}
+
 // ─── Staking rules ─────────────────────────────────────────────────────────
 
 export interface CreateStakingRuleInput {
