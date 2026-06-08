@@ -167,7 +167,7 @@ screens/                una por ruta (ver §6).
 | `/staking` | Staking | reglas, accruals, expected vs actual |
 | `/insights` | Insights | listado completo del Insights Engine |
 | `/cuentas` | Cuentas | CRUD cuentas (con tag A/B) + entrada a Reconciliar |
-| `/reconciliar/:accountId` | Reconciliar | actualizás saldos finales → deduce swaps/dep/ret |
+| `/reconciliar` `/reconciliar/:accountId` | Reconciliar | saldos finales por (asset×cartera) → deduce swaps/dep/ret (multi-cartera) |
 | `/importar` | Importar | import/export JSON, sync Gist |
 | `/settings` | Settings | modo demo/limpio, API keys, info |
 
@@ -182,11 +182,12 @@ ratio y breakdown · chat con Gemini/Claude + fallback regex · simulador ·
 métricas/liquidez/riesgo · Insights Engine · staking con accrual automático y
 performance · soporte/resistencia + Oportunidades · charts · todas las pantallas
 de §6 · import/export JSON (replace+merge) · **sync entre devices vía GitHub
-Gist** · bootstrap demo/clean · PWA · **Reconciliar saldo** (actualizás los
-saldos finales de una cuenta y la app deduce las transacciones: swap con precio
-implícito desde los deltas, auto-split 1×N, emparejamiento manual N×M,
+Gist** · bootstrap demo/clean · PWA · **Reconciliar saldo** (por cuenta,
+**multi-cartera**: actualizás los saldos finales por scope `(asset, cartera)` y
+la app deduce las transacciones: swap con precio implícito desde los deltas —
+puede cruzar carteras —, auto-split 1×N, emparejamiento manual N×M,
 depósitos/retiros single-sided; txs con `source:'reconcile'` + tag `[recon:UUID]`
-para deshacer).
+para deshacer. Accesible desde el menú y desde el botón "Saldos" en cada cuenta).
 
 **Pendiente / próximos pasos candidatos** (no priorizado por el usuario aún):
 - No hay tests automatizados — `fifo.ts`, `metrics.ts`, `simulator.ts`,

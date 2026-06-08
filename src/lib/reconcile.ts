@@ -18,6 +18,13 @@
  * BTC entra al FIFO con su costo base correcto (clave para que el DCA siga
  * andando: "compré a 60k/65k/70k, ¿gano si vendo a 80k?").
  *
+ * Scope multi-cartera: una reconciliación es por CUENTA pero abarca TODAS sus
+ * carteras. Cada fila/movimiento se identifica por el scope `(asset, cartera)`
+ * — porque el mismo activo (ej. USDC) puede vivir en `corto` y `medio` a la
+ * vez, y el FIFO los maneja como posiciones independientes. Un swap puede
+ * cruzar carteras (vendés USDC de `corto`, el BTC entra a `medio`): el valor
+ * se conserva igual.
+ *
  * Casos:
  *  - 1 baja + 1 suba           → 1 swap, precio implícito exacto.
  *  - 1 baja + N subas (o vice) → se reparte por valor de mercado de cada punta
@@ -46,12 +53,23 @@ export function isStableAsset(ticker: string, type: string): boolean {
   return type === 'cash' || STABLE_TICKERS.has(ticker.toUpperCase());
 }
 
+/** Identificador único de un scope `(asset, cartera)` dentro de la cuenta. */
+export function scopeKey(assetId: string, portfolioId: string): string {
+  return `${assetId}|${portfolioId}`;
+}
+
 // ─── Entrada ────────────────────────────────────────────────────────────────
 
-/** Una fila de la tabla de reconciliación: saldo actual vs nuevo. */
+/** Una fila de la tabla de reconciliación: saldo actual vs nuevo, con cartera. */
 export interface BalanceLine {
+  /** Clave única del scope `(asset, cartera)` — `scopeKey(assetId, portfolioId)`. */
+  key: string;
   assetId: string;
   ticker: string;
+  /** Cartera donde vive esta posición. El swap puede cruzar carteras. */
+  portfolioId: string;
+  /** Etiqueta legible de la cartera (ej. "corto") para mostrar. */
+  bucketLabel: string;
   /** Saldo que la app calculó para este (cuenta, cartera). */
   currentQty: number;
   /** Saldo real que el usuario tiene ahora en la plataforma. */
@@ -64,8 +82,11 @@ export interface BalanceLine {
 
 /** Un movimiento detectado (una punta del swap). Magnitud siempre positiva. */
 export interface Delta {
+  key: string;
   assetId: string;
   ticker: string;
+  portfolioId: string;
+  bucketLabel: string;
   qty: number;
   priceUSD: number;
   isStable: boolean;
@@ -73,10 +94,10 @@ export interface Delta {
   valueUSD: number;
 }
 
-/** Un emparejamiento source→sink con las cantidades de cada punta. */
+/** Un emparejamiento source→sink (por scope) con las cantidades de cada punta. */
 export interface Pairing {
-  fromAssetId: string;
-  toAssetId: string;
+  fromKey: string;
+  toKey: string;
   fromQty: number;
   toQty: number;
 }
@@ -88,11 +109,15 @@ export type ReconcileMove =
       kind: 'swap';
       fromAssetId: string;
       fromTicker: string;
+      fromPortfolioId: string;
+      fromBucketLabel: string;
       fromQty: number;
       /** Precio USD del activo entregado (1 para stables). */
       fromPriceUSD: number;
       toAssetId: string;
       toTicker: string;
+      toPortfolioId: string;
+      toBucketLabel: string;
       toQty: number;
       /** Precio implícito del activo recibido = valueUSD / toQty. */
       impliedPriceUSD: number;
@@ -102,6 +127,8 @@ export type ReconcileMove =
       kind: 'deposit' | 'withdraw';
       assetId: string;
       ticker: string;
+      portfolioId: string;
+      bucketLabel: string;
       qty: number;
       priceUSD: number;
       valueUSD: number;
@@ -133,8 +160,11 @@ export function computeDeltas(lines: BalanceLine[]): {
     const qty = Math.abs(d);
     const unit = l.priceUSD || (l.isStable ? 1 : 0);
     const entry: Delta = {
+      key: l.key,
       assetId: l.assetId,
       ticker: l.ticker,
+      portfolioId: l.portfolioId,
+      bucketLabel: l.bucketLabel,
       qty,
       priceUSD: l.priceUSD,
       isStable: l.isStable,
@@ -174,8 +204,8 @@ export function autoPairings(sources: Delta[], sinks: Delta[]): Pairing[] | null
     for (const sink of sinks) {
       const w = total > 0 ? sink.valueUSD / total : 1 / sinks.length;
       pairings.push({
-        fromAssetId: src.assetId,
-        toAssetId: sink.assetId,
+        fromKey: src.key,
+        toKey: sink.key,
         fromQty: src.qty * w,
         toQty: sink.qty,
       });
@@ -187,8 +217,8 @@ export function autoPairings(sources: Delta[], sinks: Delta[]): Pairing[] | null
     for (const src of sources) {
       const w = total > 0 ? src.valueUSD / total : 1 / sources.length;
       pairings.push({
-        fromAssetId: src.assetId,
-        toAssetId: sink.assetId,
+        fromKey: src.key,
+        toKey: sink.key,
         fromQty: src.qty,
         toQty: sink.qty * w,
       });
@@ -213,14 +243,14 @@ export function buildPlan(
   const moves: ReconcileMove[] = [];
   const warnings: ReconcileWarning[] = [];
 
-  const srcById = new Map(sources.map((s) => [s.assetId, s]));
-  const sinkById = new Map(sinks.map((s) => [s.assetId, s]));
+  const srcByKey = new Map(sources.map((s) => [s.key, s]));
+  const sinkByKey = new Map(sinks.map((s) => [s.key, s]));
   const usedFrom = new Map<string, number>();
   const usedTo = new Map<string, number>();
 
   for (const p of pairings) {
-    const src = srcById.get(p.fromAssetId);
-    const sink = sinkById.get(p.toAssetId);
+    const src = srcByKey.get(p.fromKey);
+    const sink = sinkByKey.get(p.toKey);
     if (!src || !sink || p.fromQty <= DUST || p.toQty <= DUST) continue;
 
     const fromPriceUSD = src.priceUSD || (src.isStable ? 1 : 0);
@@ -231,17 +261,21 @@ export function buildPlan(
       kind: 'swap',
       fromAssetId: src.assetId,
       fromTicker: src.ticker,
+      fromPortfolioId: src.portfolioId,
+      fromBucketLabel: src.bucketLabel,
       fromQty: p.fromQty,
       fromPriceUSD,
       toAssetId: sink.assetId,
       toTicker: sink.ticker,
+      toPortfolioId: sink.portfolioId,
+      toBucketLabel: sink.bucketLabel,
       toQty: p.toQty,
       impliedPriceUSD,
       valueUSD,
     });
 
-    usedFrom.set(src.assetId, (usedFrom.get(src.assetId) ?? 0) + p.fromQty);
-    usedTo.set(sink.assetId, (usedTo.get(sink.assetId) ?? 0) + p.toQty);
+    usedFrom.set(src.key, (usedFrom.get(src.key) ?? 0) + p.fromQty);
+    usedTo.set(sink.key, (usedTo.get(sink.key) ?? 0) + p.toQty);
 
     // Guardrail: precio implícito muy lejos del de mercado = saldo mal tipeado.
     if (sink.priceUSD > 0) {
@@ -263,12 +297,14 @@ export function buildPlan(
 
   // Remanentes no emparejados → depósito / retiro.
   for (const s of sources) {
-    const rem = s.qty - (usedFrom.get(s.assetId) ?? 0);
+    const rem = s.qty - (usedFrom.get(s.key) ?? 0);
     if (rem > DUST) {
       moves.push({
         kind: 'withdraw',
         assetId: s.assetId,
         ticker: s.ticker,
+        portfolioId: s.portfolioId,
+        bucketLabel: s.bucketLabel,
         qty: rem,
         priceUSD: s.priceUSD,
         valueUSD: rem * (s.priceUSD || (s.isStable ? 1 : 0)),
@@ -276,17 +312,19 @@ export function buildPlan(
     } else if (rem < -DUST) {
       warnings.push({
         level: 'warn',
-        message: `Emparejaste más ${s.ticker} del que bajó el saldo.`,
+        message: `Emparejaste más ${s.ticker} (${s.bucketLabel}) del que bajó el saldo.`,
       });
     }
   }
   for (const s of sinks) {
-    const rem = s.qty - (usedTo.get(s.assetId) ?? 0);
+    const rem = s.qty - (usedTo.get(s.key) ?? 0);
     if (rem > DUST) {
       moves.push({
         kind: 'deposit',
         assetId: s.assetId,
         ticker: s.ticker,
+        portfolioId: s.portfolioId,
+        bucketLabel: s.bucketLabel,
         qty: rem,
         priceUSD: s.priceUSD,
         valueUSD: rem * (s.priceUSD || (s.isStable ? 1 : 0)),
@@ -294,7 +332,7 @@ export function buildPlan(
     } else if (rem < -DUST) {
       warnings.push({
         level: 'warn',
-        message: `Emparejaste más ${s.ticker} del que subió el saldo.`,
+        message: `Emparejaste más ${s.ticker} (${s.bucketLabel}) del que subió el saldo.`,
       });
     }
   }

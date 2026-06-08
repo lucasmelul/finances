@@ -567,24 +567,24 @@ export async function createSwap(
  */
 export interface ReconcileMoveInput {
   kind: 'swap' | 'deposit' | 'withdraw';
-  // swap
+  // swap — cada punta lleva su propia cartera (pueden diferir).
   fromAssetId?: string;
+  fromPortfolioId?: string;
   fromQty?: number;
   /** Precio USD del activo entregado (1 para stables). */
   fromPriceUSD?: number;
   toAssetId?: string;
+  toPortfolioId?: string;
   toQty?: number;
   // deposit / withdraw
   assetId?: string;
+  portfolioId?: string;
   qty?: number;
   priceUSD?: number;
 }
 
 export interface CreateReconciliationInput {
   accountId: string;
-  /** Cartera fija para TODA la reconciliación (decisión de diseño). */
-  bucket?: PortfolioBucket;
-  portfolioId?: string;
   moves: ReconcileMoveInput[];
   date?: string;
 }
@@ -600,12 +600,6 @@ export interface CreateReconciliationInput {
 export async function createReconciliation(
   input: CreateReconciliationInput,
 ): Promise<{ reconId: string; txs: Transaction[] }> {
-  const portfolioId =
-    input.portfolioId ??
-    (input.bucket ? portfolioIdForBucket(input.bucket) : undefined);
-  if (!portfolioId) {
-    throw new Error('createReconciliation: requiere `portfolioId` o `bucket`.');
-  }
   if (input.moves.length === 0) {
     throw new Error('No hay cambios para reconciliar.');
   }
@@ -616,9 +610,10 @@ export async function createReconciliation(
   const reconId = newId();
   const tag = `[recon:${reconId}]`;
 
+  // Campos comunes a toda tx de la reconciliación EXCEPTO portfolioId, que
+  // ahora es por-movimiento (cada punta puede vivir en una cartera distinta).
   const common = {
     accountId: input.accountId,
-    portfolioId,
     priceCurrency: 'USD' as const,
     date,
     fxSnapshot: latestFx,
@@ -631,12 +626,14 @@ export async function createReconciliation(
   for (const m of input.moves) {
     if (m.kind === 'swap') {
       if (!m.fromAssetId || !m.toAssetId || !m.fromQty || !m.toQty) continue;
+      if (!m.fromPortfolioId || !m.toPortfolioId) continue;
       if (m.fromQty <= 0 || m.toQty <= 0) continue;
       const fromPrice = m.fromPriceUSD ?? 1;
       const toPrice = (m.fromQty * fromPrice) / m.toQty;
       txs.push({
         id: newId(),
         kind: 'sell',
+        portfolioId: m.fromPortfolioId,
         assetId: m.fromAssetId,
         qty: m.fromQty,
         unitPrice: fromPrice,
@@ -646,6 +643,7 @@ export async function createReconciliation(
       txs.push({
         id: newId(),
         kind: 'buy',
+        portfolioId: m.toPortfolioId,
         assetId: m.toAssetId,
         qty: m.toQty,
         unitPrice: toPrice,
@@ -653,10 +651,11 @@ export async function createReconciliation(
         ...common,
       });
     } else if (m.kind === 'deposit') {
-      if (!m.assetId || !m.qty || m.qty <= 0) continue;
+      if (!m.assetId || !m.portfolioId || !m.qty || m.qty <= 0) continue;
       txs.push({
         id: newId(),
         kind: 'transfer_in',
+        portfolioId: m.portfolioId,
         assetId: m.assetId,
         qty: m.qty,
         unitPrice: m.priceUSD ?? 0,
@@ -664,10 +663,11 @@ export async function createReconciliation(
         ...common,
       });
     } else {
-      if (!m.assetId || !m.qty || m.qty <= 0) continue;
+      if (!m.assetId || !m.portfolioId || !m.qty || m.qty <= 0) continue;
       txs.push({
         id: newId(),
         kind: 'transfer_out',
+        portfolioId: m.portfolioId,
         assetId: m.assetId,
         qty: m.qty,
         unitPrice: m.priceUSD ?? 0,

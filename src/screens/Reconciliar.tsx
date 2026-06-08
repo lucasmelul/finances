@@ -2,9 +2,13 @@
  * Reconciliar saldo — actualizá los saldos finales de una cuenta y la app
  * deduce las transacciones (swaps / depósitos / retiros) automáticamente.
  *
+ * Multi-cartera: una reconciliación es por CUENTA y abarca TODAS sus carteras.
+ * Cada fila es un scope `(asset, cartera)` — el mismo activo puede aparecer en
+ * `corto` y `medio` a la vez. Un swap puede cruzar carteras (vendés USDC de
+ * `corto`, el BTC entra a `medio`): el valor se conserva igual.
+ *
  * Flujo:
- *  1. Elegís la cartera (fija para toda la reconciliación) y editás los saldos
- *     reales que tenés ahora en la plataforma.
+ *  1. Editás los saldos reales que tenés ahora en la plataforma (por cartera).
  *  2. "Revisar" calcula los deltas y arma un plan (ver `lib/reconcile.ts`):
  *     - 1 baja + 1 suba → swap con precio implícito exacto.
  *     - varios pares ambiguos → paso de emparejamiento manual.
@@ -19,7 +23,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { fmt, fmtMoney } from '@/lib/format';
-import { useAccounts, useAssets } from '@/lib/db/queries';
+import { useAccounts, useAssets, usePortfolios } from '@/lib/db/queries';
 import { useFx, useHoldings, usePriceMap } from '@/lib/db/derived';
 import { priceInUSD } from '@/lib/holdings';
 import { portfolioIdForBucket } from '@/data/portfolios';
@@ -29,6 +33,7 @@ import {
   computeDeltas,
   isStableAsset,
   needsManualPairing,
+  scopeKey,
   type BalanceLine,
   type Pairing,
 } from '@/lib/reconcile';
@@ -50,6 +55,13 @@ const BUCKET_OPTIONS: SelectOption[] = [
   { value: 'trade', label: 'Trade' },
 ];
 
+const BUCKET_SHORT: Record<string, string> = {
+  largo: 'Largo',
+  medio: 'Mediano',
+  corto: 'Corto',
+  trade: 'Trade',
+};
+
 type Step = 'edit' | 'review';
 
 export function Reconciliar() {
@@ -58,14 +70,16 @@ export function Reconciliar() {
 
   const accounts = useAccounts();
   const assets = useAssets();
+  const portfolios = usePortfolios();
   const holdings = useHoldings();
   const prices = usePriceMap();
   const fx = useFx();
 
-  const [bucket, setBucket] = useState<PortfolioBucket>('largo');
+  // targetById keyed por scope `(asset, cartera)`.
   const [targetById, setTargetById] = useState<Record<string, string>>({});
-  const [addedIds, setAddedIds] = useState<string[]>([]);
-  const [addPick, setAddPick] = useState('');
+  const [added, setAdded] = useState<Array<{ assetId: string; portfolioId: string }>>([]);
+  const [addAsset, setAddAsset] = useState('');
+  const [addBucket, setAddBucket] = useState<PortfolioBucket>('largo');
   const [step, setStep] = useState<Step>('edit');
   const [pairings, setPairings] = useState<Pairing[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -75,53 +89,78 @@ export function Reconciliar() {
     () => new Map((assets ?? []).map((a) => [a.id, a])),
     [assets],
   );
+  // portfolioId → bucket (para etiquetar la cartera de cada fila).
+  const bucketByPf = useMemo(
+    () => new Map((portfolios ?? []).map((p) => [p.id, p.bucket])),
+    [portfolios],
+  );
+  const bucketLabel = (portfolioId: string) => {
+    const b = bucketByPf.get(portfolioId);
+    return b ? BUCKET_SHORT[b] ?? b : portfolioId;
+  };
 
-  // Bucket → su portfolioId default (las carteras del seed usan IDs estáticos).
-  const portfolioId = portfolioIdForBucket(bucket);
-
-  // Saldos actuales en el scope (cuenta + cartera elegida).
+  // Saldos actuales de la cuenta en TODAS sus carteras.
   const scopeHoldings = useMemo(() => {
     if (!holdings || !accountId) return [];
-    return holdings.filter(
-      (h) => h.accountId === accountId && h.portfolioId === portfolioId,
-    );
-  }, [holdings, accountId, portfolioId]);
+    return holdings.filter((h) => h.accountId === accountId);
+  }, [holdings, accountId]);
 
-  // Líneas a mostrar: holdings del scope + activos agregados manualmente.
+  // Líneas a mostrar: holdings (asset×cartera) + scopes agregados manualmente.
   const lines: BalanceLine[] = useMemo(() => {
     const out: BalanceLine[] = [];
     const seen = new Set<string>();
-    const push = (assetId: string, currentQty: number) => {
+    const push = (assetId: string, portfolioId: string, currentQty: number) => {
       const asset = assetById.get(assetId);
-      if (!asset || seen.has(assetId)) return;
-      seen.add(assetId);
+      const key = scopeKey(assetId, portfolioId);
+      if (!asset || seen.has(key)) return;
+      seen.add(key);
       const entry = prices?.get(assetId);
       const priceUSD = entry ? priceInUSD(entry, fx) : 0;
       const isStable = isStableAsset(asset.ticker, asset.type);
-      const tStr = targetById[assetId];
+      const tStr = targetById[key];
       const targetQty = tStr !== undefined && tStr !== '' ? Number(tStr) : currentQty;
       out.push({
+        key,
         assetId,
         ticker: asset.ticker,
+        portfolioId,
+        bucketLabel: bucketLabel(portfolioId),
         currentQty,
         targetQty: Number.isFinite(targetQty) ? targetQty : currentQty,
         priceUSD,
         isStable,
       });
     };
-    for (const h of scopeHoldings) push(h.assetId, h.qty);
-    for (const id of addedIds) push(id, 0);
-    return out;
-  }, [scopeHoldings, addedIds, assetById, prices, fx, targetById]);
+    for (const h of scopeHoldings) push(h.assetId, h.portfolioId, h.qty);
+    for (const a of added) push(a.assetId, a.portfolioId, 0);
+    // Orden estable: por ticker, luego cartera.
+    return out.sort(
+      (a, b) => a.ticker.localeCompare(b.ticker) || a.bucketLabel.localeCompare(b.bucketLabel),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeHoldings, added, assetById, prices, fx, targetById, bucketByPf]);
 
-  // Activos que se pueden agregar (no están ya en la tabla).
+  // Opciones para "agregar activo" (todos los assets; el scope lo define el
+  // par asset+cartera, así que no filtramos por los ya presentes).
   const addableOptions: SelectOption[] = useMemo(() => {
-    const inTable = new Set(lines.map((l) => l.assetId));
-    const opts = (assets ?? [])
-      .filter((a) => !inTable.has(a.id))
-      .map((a) => ({ value: a.id, label: `${a.ticker} — ${a.name}` }));
-    return [{ value: '', label: '+ Agregar activo…' }, ...opts];
-  }, [assets, lines]);
+    const opts = (assets ?? []).map((a) => ({
+      value: a.id,
+      label: `${a.ticker} — ${a.name}`,
+    }));
+    return [{ value: '', label: '— Elegir activo —' }, ...opts];
+  }, [assets]);
+
+  function handleAdd() {
+    if (!addAsset) return;
+    const portfolioId = portfolioIdForBucket(addBucket);
+    const key = scopeKey(addAsset, portfolioId);
+    if (lines.some((l) => l.key === key)) {
+      toast.info('Ese activo ya está en esa cartera.');
+      return;
+    }
+    setAdded((a) => [...a, { assetId: addAsset, portfolioId }]);
+    setAddAsset('');
+  }
 
   // ─── Plan derivado (en step review) ────────────────────────────────────────
 
@@ -147,8 +186,8 @@ export function Reconciliar() {
       const seed: Pairing[] = [];
       for (let i = 0; i < n; i++) {
         seed.push({
-          fromAssetId: sources[i].assetId,
-          toAssetId: sinks[i].assetId,
+          fromKey: sources[i].key,
+          toKey: sinks[i].key,
           fromQty: sources[i].qty,
           toQty: sinks[i].qty,
         });
@@ -165,21 +204,25 @@ export function Reconciliar() {
         ? {
             kind: 'swap',
             fromAssetId: m.fromAssetId,
+            fromPortfolioId: m.fromPortfolioId,
             fromQty: m.fromQty,
             fromPriceUSD: m.fromPriceUSD,
             toAssetId: m.toAssetId,
+            toPortfolioId: m.toPortfolioId,
             toQty: m.toQty,
           }
-        : { kind: m.kind, assetId: m.assetId, qty: m.qty, priceUSD: m.priceUSD },
+        : {
+            kind: m.kind,
+            assetId: m.assetId,
+            portfolioId: m.portfolioId,
+            qty: m.qty,
+            priceUSD: m.priceUSD,
+          },
     );
 
     setSubmitting(true);
     try {
-      const { reconId } = await createReconciliation({
-        accountId,
-        bucket,
-        moves,
-      });
+      const { reconId } = await createReconciliation({ accountId, moves });
       toast.success('Saldos reconciliados', {
         description: `${plan.moves.length} ${plan.moves.length === 1 ? 'movimiento' : 'movimientos'} registrados.`,
         action: {
@@ -291,36 +334,17 @@ export function Reconciliar() {
 
       {step === 'edit' ? (
         <>
-          {/* Cartera */}
-          <div className="rounded-2xl border border-border-subtle bg-bg-surface p-3.5">
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
-              Cartera (fija para esta reconciliación)
-            </label>
-            <Select
-              options={BUCKET_OPTIONS}
-              value={bucket}
-              onChange={(e) => {
-                setBucket(e.target.value as PortfolioBucket);
-                setTargetById({});
-                setAddedIds([]);
-              }}
-            />
-            <p className="mt-2 text-[11px] text-text-muted">
-              Se ajustan los saldos de esta cuenta dentro de la cartera elegida.
-            </p>
-          </div>
-
           {/* Tabla de saldos */}
           <section className="overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface">
             <div className="flex items-center gap-2 border-b border-border-subtle px-3.5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
-              <span className="flex-1">Activo</span>
-              <span className="w-24 text-right">Calculado</span>
+              <span className="flex-1">Activo · cartera</span>
+              <span className="w-20 text-right">Calculado</span>
               <span className="w-28 text-right">Saldo real</span>
             </div>
 
             {lines.length === 0 && (
               <div className="px-4 py-6 text-center text-[13px] text-text-muted">
-                No hay activos en esta cuenta/cartera. Agregá uno abajo.
+                Esta cuenta no tiene activos. Agregá uno abajo.
               </div>
             )}
 
@@ -328,21 +352,24 @@ export function Reconciliar() {
               const changed = Math.abs(l.targetQty - l.currentQty) > 1e-8;
               return (
                 <div
-                  key={l.assetId}
+                  key={l.key}
                   className={cn(
                     'flex items-center gap-2 px-3.5 py-2.5',
                     i < lines.length - 1 && 'border-b border-border-subtle',
                   )}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-text-primary">
-                      {l.ticker}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-semibold text-text-primary">{l.ticker}</span>
+                      <span className="rounded bg-bg-elevated px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+                        {l.bucketLabel}
+                      </span>
                     </div>
-                    <div className="text-[10px] text-text-muted">
+                    <div className="mt-0.5 text-[10px] text-text-muted">
                       {l.priceUSD > 0 ? fmtMoney(l.priceUSD) : 's/precio'}
                     </div>
                   </div>
-                  <div className="w-24 text-right text-[13px] tabular-nums text-text-secondary">
+                  <div className="w-20 text-right text-[13px] tabular-nums text-text-secondary">
                     {fmt(l.currentQty, l.currentQty < 1 ? 6 : 2)}
                   </div>
                   <div className="w-28">
@@ -351,9 +378,9 @@ export function Reconciliar() {
                       step="any"
                       inputMode="decimal"
                       className={cn('text-right', changed && 'border-accent')}
-                      value={targetById[l.assetId] ?? String(l.currentQty)}
+                      value={targetById[l.key] ?? String(l.currentQty)}
                       onChange={(e) =>
-                        setTargetById((m) => ({ ...m, [l.assetId]: e.target.value }))
+                        setTargetById((m) => ({ ...m, [l.key]: e.target.value }))
                       }
                     />
                   </div>
@@ -362,18 +389,34 @@ export function Reconciliar() {
             })}
           </section>
 
-          {/* Agregar activo */}
-          <Select
-            options={addableOptions}
-            value={addPick}
-            onChange={(e) => {
-              const id = e.target.value;
-              if (id) {
-                setAddedIds((ids) => [...ids, id]);
-                setAddPick('');
-              }
-            }}
-          />
+          {/* Agregar activo (eligiendo cartera) */}
+          <section className="rounded-2xl border border-border-subtle bg-bg-surface p-3.5">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+              Agregar activo
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Select
+                options={addableOptions}
+                value={addAsset}
+                onChange={(e) => setAddAsset(e.target.value)}
+              />
+              <Select
+                options={BUCKET_OPTIONS}
+                value={addBucket}
+                onChange={(e) => setAddBucket(e.target.value as PortfolioBucket)}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon="plus"
+              className="mt-2.5"
+              onClick={handleAdd}
+              disabled={!addAsset}
+            >
+              Agregar a la tabla
+            </Button>
+          </section>
 
           <Button variant="primary" size="lg" full leftIcon="check" onClick={handleReview}>
             Revisar cambios
@@ -452,10 +495,16 @@ function ReviewStep({
           >
             {m.kind === 'swap' ? (
               <>
-                <div className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-text-primary">
                   <span>{fmt(m.fromQty, m.fromQty < 1 ? 6 : 2)} {m.fromTicker}</span>
+                  <span className="rounded bg-bg-elevated px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+                    {m.fromBucketLabel}
+                  </span>
                   <Icon name="arrow-right" size={14} className="text-text-muted" />
                   <span>{fmt(m.toQty, m.toQty < 1 ? 6 : 2)} {m.toTicker}</span>
+                  <span className="rounded bg-bg-elevated px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+                    {m.toBucketLabel}
+                  </span>
                 </div>
                 <div className="mt-0.5 text-[11px] text-text-secondary">
                   {m.toTicker} @ {fmtMoney(m.impliedPriceUSD)} · valor {fmtMoney(m.valueUSD)}
@@ -463,7 +512,7 @@ function ReviewStep({
               </>
             ) : (
               <>
-                <div className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-text-primary">
                   <Icon
                     name={m.kind === 'deposit' ? 'arrow-down' : 'arrow-up'}
                     size={14}
@@ -472,6 +521,9 @@ function ReviewStep({
                   <span>
                     {m.kind === 'deposit' ? 'Ingreso' : 'Egreso'} de{' '}
                     {fmt(m.qty, m.qty < 1 ? 6 : 2)} {m.ticker}
+                  </span>
+                  <span className="rounded bg-bg-elevated px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+                    {m.bucketLabel}
                   </span>
                 </div>
                 <div className="mt-0.5 text-[11px] text-text-secondary">
@@ -526,12 +578,12 @@ function PairingEditor({
   setPairings: (p: Pairing[]) => void;
 }) {
   const srcOptions: SelectOption[] = sources.map((s) => ({
-    value: s.assetId,
-    label: `${s.ticker} (−${fmt(s.qty, s.qty < 1 ? 6 : 2)})`,
+    value: s.key,
+    label: `${s.ticker} · ${s.bucketLabel} (−${fmt(s.qty, s.qty < 1 ? 6 : 2)})`,
   }));
   const sinkOptions: SelectOption[] = sinks.map((s) => ({
-    value: s.assetId,
-    label: `${s.ticker} (+${fmt(s.qty, s.qty < 1 ? 6 : 2)})`,
+    value: s.key,
+    label: `${s.ticker} · ${s.bucketLabel} (+${fmt(s.qty, s.qty < 1 ? 6 : 2)})`,
   }));
 
   const update = (i: number, patch: Partial<Pairing>) => {
@@ -542,8 +594,8 @@ function PairingEditor({
     setPairings([
       ...pairings,
       {
-        fromAssetId: sources[0]?.assetId ?? '',
-        toAssetId: sinks[0]?.assetId ?? '',
+        fromKey: sources[0]?.key ?? '',
+        toKey: sinks[0]?.key ?? '',
         fromQty: 0,
         toQty: 0,
       },
@@ -565,13 +617,13 @@ function PairingEditor({
             <div className="grid grid-cols-2 gap-2">
               <Select
                 options={srcOptions}
-                value={p.fromAssetId}
-                onChange={(e) => update(i, { fromAssetId: e.target.value })}
+                value={p.fromKey}
+                onChange={(e) => update(i, { fromKey: e.target.value })}
               />
               <Select
                 options={sinkOptions}
-                value={p.toAssetId}
-                onChange={(e) => update(i, { toAssetId: e.target.value })}
+                value={p.toKey}
+                onChange={(e) => update(i, { toKey: e.target.value })}
               />
               <Input
                 type="number"
